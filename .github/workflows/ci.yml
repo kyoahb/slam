@@ -79,11 +79,12 @@ jobs:
           }
           shoot() {
             id=$1; dev=$2
-            if ! limit 420 xcrun simctl bootstatus "$id" -b > /dev/null; then
-              echo "$dev: boot stalled, booting again"
-              xcrun simctl shutdown "$id" || true
-              limit 240 xcrun simctl bootstatus "$id" -b > /dev/null
+            echo "$(date +%T) $dev: booting"
+            limit 300 xcrun simctl boot "$id" || echo "$dev: boot command failed"
+            if ! limit 600 xcrun simctl bootstatus "$id" > "build/boot-$dev.log" 2>&1; then
+              echo "$dev: boot stalled"; tail -5 "build/boot-$dev.log"; exit 1
             fi
+            echo "$(date +%T) $dev: booted"
             xcrun simctl status_bar "$id" override --time 9:41 --batteryState charged --batteryLevel 100 --wifiBars 3 --cellularMode notSupported
             limit 180 xcrun simctl install "$id" build/dd/Build/Products/Debug-iphonesimulator/Slam.app
             ready="$(xcrun simctl get_app_container "$id" com.kyoahb.slam data)/tmp/demo-ready"
