@@ -1,0 +1,72 @@
+name: Slam
+options:
+  bundleIdPrefix: com.kyoahb
+  deploymentTarget:
+    iOS: "26.0"
+  createIntermediateGroups: true
+settings:
+  base:
+    SWIFT_VERSION: "5.0"
+    MARKETING_VERSION: "0.1.0"
+    CURRENT_PROJECT_VERSION: "1"
+    CODE_SIGN_STYLE: Automatic
+packages:
+  SlamCore:
+    path: Packages/SlamCore
+targets:
+  Slam:
+    type: application
+    platform: iOS
+    sources:
+      - path: Slam
+    dependencies:
+      - package: SlamCore
+    info:
+      path: Slam/Info.plist
+      properties:
+        CFBundleDisplayName: Slam
+        CFBundleShortVersionString: $(MARKETING_VERSION)
+        CFBundleVersion: $(CURRENT_PROJECT_VERSION)
+        ITSAppUsesNonExemptEncryption: false
+        LSRequiresIPhoneOS: true
+        LSSupportsOpeningDocumentsInPlace: true
+        NSCameraUsageDescription: Take photos for your workouts.
+        UIFileSharingEnabled: true
+        UILaunchScreen: {}
+        UIUserInterfaceStyle: Dark
+        UIApplicationSceneManifest:
+          UIApplicationSupportsMultipleScenes: false
+        UISupportedInterfaceOrientations:
+          - UIInterfaceOrientationPortrait
+    settings:
+      base:
+        PRODUCT_BUNDLE_IDENTIFIER: com.kyoahb.slam
+        TARGETED_DEVICE_FAMILY: "1"
+        ASSETCATALOG_COMPILER_APPICON_NAME: AppIcon
+        ASSETCATALOG_COMPILER_GLOBAL_ACCENT_COLOR_NAME: AccentColor
+        ENABLE_PREVIEWS: true
+  SlamUITests:
+    type: bundle.ui-testing
+    platform: iOS
+    sources:
+      - path: SlamUITests
+    dependencies:
+      - target: Slam
+    settings:
+      base:
+        PRODUCT_BUNDLE_IDENTIFIER: com.kyoahb.slam.uitests
+        GENERATE_INFOPLIST_FILE: true
+        TEST_TARGET_NAME: Slam
+        TARGETED_DEVICE_FAMILY: "1"
+schemes:
+  Slam:
+    build:
+      targets:
+        Slam: all
+        SlamUITests: [test]
+    test:
+      config: Debug
+      targets:
+        - SlamUITests
+    archive:
+      config: Release

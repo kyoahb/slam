@@ -1,0 +1,65 @@
+name: TestFlight
+
+on:
+  workflow_dispatch:
+  schedule:
+    # TestFlight builds expire after 90 days.
+    - cron: "0 6 1 */2 *"
+
+jobs:
+  testflight:
+    runs-on: macos-26
+    timeout-minutes: 45
+    env:
+      TEAMID: ${{ secrets.TEAMID }}
+      KEY_ID: ${{ secrets.FASTLANE_KEY_ID }}
+      ISSUER_ID: ${{ secrets.FASTLANE_ISSUER_ID }}
+    steps:
+      - uses: actions/checkout@v5
+
+      - name: Generate project
+        run: brew install xcodegen && xcodegen generate
+
+      - name: API key
+        env:
+          FASTLANE_KEY: ${{ secrets.FASTLANE_KEY }}
+        run: |
+          mkdir -p build
+          printf '%s\n' "$FASTLANE_KEY" > build/AuthKey.p8
+
+      - name: Archive
+        run: |
+          xcodebuild archive -project Slam.xcodeproj -scheme Slam -configuration Release \
+            -destination 'generic/platform=iOS' -archivePath build/Slam.xcarchive \
+            DEVELOPMENT_TEAM="$TEAMID" CURRENT_PROJECT_VERSION="${{ github.run_number }}" \
+            -allowProvisioningUpdates \
+            -authenticationKeyPath "$PWD/build/AuthKey.p8" \
+            -authenticationKeyID "$KEY_ID" \
+            -authenticationKeyIssuerID "$ISSUER_ID" > build/archive.log 2>&1 \
+            || { grep -E "error:" -A3 build/archive.log | head -200; tail -40 build/archive.log; exit 1; }
+
+      - name: Upload to TestFlight
+        run: |
+          cat > build/ExportOptions.plist <<PLIST
+          <?xml version="1.0" encoding="UTF-8"?>
+          <!DOCTYPE plist PUBLIC "-//Apple//DTD PLIST 1.0//EN" "http://www.apple.com/DTDs/PropertyList-1.0.dtd">
+          <plist version="1.0">
+          <dict>
+            <key>method</key><string>app-store-connect</string>
+            <key>destination</key><string>upload</string>
+            <key>teamID</key><string>$TEAMID</string>
+            <key>signingStyle</key><string>automatic</string>
+            <key>manageAppVersionAndBuildNumber</key><false/>
+          </dict>
+          </plist>
+          PLIST
+          xcodebuild -exportArchive -archivePath build/Slam.xcarchive \
+            -exportOptionsPlist build/ExportOptions.plist -exportPath build/export \
+            -allowProvisioningUpdates \
+            -authenticationKeyPath "$PWD/build/AuthKey.p8" \
+            -authenticationKeyID "$KEY_ID" \
+            -authenticationKeyIssuerID "$ISSUER_ID"
+
+      - name: Remove key
+        if: always()
+        run: rm -f build/AuthKey.p8

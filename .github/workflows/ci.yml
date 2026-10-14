@@ -1,0 +1,68 @@
+name: Build and screenshots
+
+on:
+  workflow_dispatch:
+
+concurrency:
+  group: ci
+  cancel-in-progress: true
+
+jobs:
+  build:
+    runs-on: macos-26
+    timeout-minutes: 45
+    steps:
+      - uses: actions/checkout@v5
+
+      - name: Generate project
+        run: brew install xcodegen && xcodegen generate
+
+      - name: Build
+        run: |
+          mkdir -p build
+          if ! xcodebuild build-for-testing -project Slam.xcodeproj -scheme Slam \
+              -destination 'platform=iOS Simulator,name=iPhone 17e' \
+              -derivedDataPath build/dd > build/build.log 2>&1; then
+            grep -E "error:" -A3 build/build.log | head -300
+            exit 1
+          fi
+          grep -cE "warning:" build/build.log || true
+
+      - name: Screenshots
+        run: |
+          set -o pipefail
+          xcodebuild test-without-building -project Slam.xcodeproj -scheme Slam -derivedDataPath build/dd \
+            -destination 'platform=iOS Simulator,name=iPhone 17e' \
+            -destination 'platform=iOS Simulator,name=iPhone 17 Pro Max' \
+            -resultBundlePath build/Shots.xcresult 2>&1 | grep -E "Test (Case|Suite)|error|failed|passed" | tail -60
+
+      - name: Export screenshots
+        if: always()
+        run: |
+          [ -d build/Shots.xcresult ] || exit 0
+          xcrun xcresulttool export attachments --path build/Shots.xcresult --output-path shots
+          python3 - <<'PY'
+          import json, os, re
+          d = "shots"
+          for test in json.load(open(os.path.join(d, "manifest.json"))):
+              for a in test.get("attachments", []):
+                  name = a.get("suggestedHumanReadableName") or a["exportedFileName"]
+                  name = re.sub(r"_\d+_[0-9A-Fa-f-]{36}", "", name)
+                  name = re.sub(r"[^A-Za-z0-9.]+", "-", name)
+                  os.rename(os.path.join(d, a["exportedFileName"]), os.path.join(d, name))
+          PY
+          ls shots
+
+      - uses: actions/upload-artifact@v4
+        if: always()
+        with:
+          name: screenshots
+          path: shots/*.png
+          if-no-files-found: ignore
+
+      - uses: actions/upload-artifact@v4
+        if: failure()
+        with:
+          name: build-log
+          path: build/build.log
+          if-no-files-found: ignore

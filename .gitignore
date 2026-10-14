@@ -1,0 +1,9 @@
+.build/
+.swiftpm/
+DerivedData/
+build/
+*.xcresult
+xcuserdata/
+.DS_Store
+shots/
+Slam.xcodeproj/
