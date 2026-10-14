@@ -21,11 +21,12 @@ struct WorkoutDetailView: View {
 
     private func content(_ w: Workout) -> some View {
         let records = model.records[w.id]?.count ?? 0
+        let gym: String = model.gym(w.gymId).map { " · \($0.name)" } ?? ""
         return ScrollView {
             VStack(alignment: .leading, spacing: 16) {
                 VStack(alignment: .leading, spacing: 4) {
                     Text(w.title.isEmpty ? "Workout" : w.title).font(.title2.weight(.bold))
-                    Text(w.start.dayTitle + ", " + w.start.time + (model.gym(w.gymId).map { " · " + $0.name } ?? ""))
+                    Text("\(w.start.dayTitle), \(w.start.time)\(gym)")
                         .font(.footnote)
                         .foregroundStyle(Theme.grey)
                 }

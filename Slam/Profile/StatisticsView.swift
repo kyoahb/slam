@@ -305,10 +305,11 @@ struct MainExercisesView: View {
                 counts[id] = (c.0 + 1, max(c.1, w.start))
             }
         }
-        return counts.map { Row(id: $0.key, count: $0.value.0, last: $0.value.1) }
-            .sorted { $0.count != $1.count ? $0.count > $1.count : $0.last > $1.last }
-            .prefix(15)
-            .map { $0 }
+        let rows: [Row] = counts.map { Row(id: $0.key, count: $0.value.0, last: $0.value.1) }
+        let sorted: [Row] = rows.sorted { (a: Row, b: Row) -> Bool in
+            a.count != b.count ? a.count > b.count : a.last > b.last
+        }
+        return Array(sorted.prefix(15))
     }
 }
 
