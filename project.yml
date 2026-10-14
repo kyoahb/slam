@@ -39,6 +39,7 @@ targets:
         LSSupportsOpeningDocumentsInPlace: true
         NSCameraUsageDescription: Take photos for your workouts.
         NSHealthShareUsageDescription: Links your Apple Watch workouts to the cardio you log.
+        NSHealthUpdateUsageDescription: Slam only reads your workouts and never writes to Health.
         NSSupportsLiveActivities: true
         BGTaskSchedulerPermittedIdentifiers:
           - com.kyoahb.slam.sync

@@ -299,26 +299,6 @@ struct ExerciseDetailView: View {
     }
 }
 
-enum SetText {
-    /// "111 kg × 8", "111 kg × 8 L 7 R", "2.4 km · 12:30". `split` adds what made the weight: "80 kg (20 10 a side) × 5".
-    static func describe(_ s: WorkSet, _ ex: Exercise, split: Bool = false) -> String {
-        var parts: [String] = []
-        if ex.type.hasKg, let kg = s.kg {
-            let made = split ? s.load?.summary(ex.rig).map { " (\($0))" } ?? "" : ""
-            parts.append(Format.kg(kg) + " kg" + made)
-        }
-        if ex.type.hasReps {
-            parts.append(ex.unilateral ? "\(s.reps ?? 0) L \(s.repsR ?? 0) R" : String(s.reps ?? 0))
-        }
-        var out = parts.joined(separator: " × ")
-        if ex.type.hasDistance, let m = s.meters {
-            out += (out.isEmpty ? "" : " · ") + (ex.type == .distanceDuration ? Format.km(m) + " km" : Format.kg(m) + " m")
-        }
-        if ex.type.hasTime, let t = s.seconds { out += (out.isEmpty ? "" : " · ") + Format.clock(t) }
-        return out
-    }
-}
-
 extension Double {
     func rounded(toPlaces n: Int) -> Double {
         let f = pow(10, Double(n))

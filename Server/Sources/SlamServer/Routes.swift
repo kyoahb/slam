@@ -66,6 +66,7 @@ public enum Routes {
             return Response(status: .ok, headers: [.contentType: "image/jpeg"],
                             body: ResponseBody(byteBuffer: ByteBuffer(bytes: data)))
         }
+        Agent.routes(router, vault, tokens)
         return router
     }
 

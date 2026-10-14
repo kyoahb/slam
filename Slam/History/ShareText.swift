@@ -32,18 +32,9 @@ enum ShareText {
                     label = "Set \(n)"
                 }
                 let medal = medals.contains(s.id) ? " 🏅" : ""
-                lines.append("\(label): \(SetText.describe(s, ex, split: true))\(rir(s, ex))\(medal)")
+                lines.append("\(label): \(SetText.describe(s, ex, split: true))\(SetText.rir(s, ex))\(medal)")
             }
         }
         return lines.joined(separator: "\n")
-    }
-
-    private static func rir(_ s: WorkSet, _ ex: Exercise) -> String {
-        guard ex.type.hasReps, s.kind != .warmup else { return "" }
-        if ex.unilateral {
-            guard s.rir != nil || s.rirR != nil else { return "" }
-            return " (RIR \(s.rir.map(String.init) ?? "–") / \(s.rirR.map(String.init) ?? "–"))"
-        }
-        return s.rir.map { " (RIR \($0))" } ?? ""
     }
 }

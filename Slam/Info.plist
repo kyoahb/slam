@@ -45,6 +45,8 @@
 	<string>Take photos for your workouts.</string>
 	<key>NSHealthShareUsageDescription</key>
 	<string>Links your Apple Watch workouts to the cardio you log.</string>
+	<key>NSHealthUpdateUsageDescription</key>
+	<string>Slam only reads your workouts and never writes to Health.</string>
 	<key>NSSupportsLiveActivities</key>
 	<true/>
 	<key>UIApplicationSceneManifest</key>
