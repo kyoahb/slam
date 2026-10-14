@@ -47,7 +47,7 @@ public struct Load: Codable, Hashable, Sendable {
 
     /// The parts in a few characters: "109 +2 pin 5", "22.5 +1", "20 10 a side". Nil when the total says it all.
     public func summary(_ rig: Rig) -> String? {
-        let p = plates.map { Format.kg($0) }.joined(separator: " ")
+        let p = Plates.short(plates)
         switch rig {
         case .stack:
             guard addOn > 0 || !plates.isEmpty else { return nil }
@@ -85,6 +85,19 @@ public enum Plates {
     public static let standard: [Double] = [25, 20, 15, 10, 5, 2.5, 1.25]
     /// Small plates that clip onto a dumbbell.
     public static let micro: [Double] = [0.5, 1, 1.25, 2.5]
+
+    /// "20 20 20 20 5" as "4×20 5": three or more of a plate in a row are counted.
+    public static func short(_ plates: [Double]) -> String {
+        var parts: [String] = []
+        var i = 0
+        while i < plates.count {
+            var n = 1
+            while i + n < plates.count && plates[i + n] == plates[i] { n += 1 }
+            parts += n >= 3 ? ["\(n)×" + Format.kg(plates[i])] : Array(repeating: Format.kg(plates[i]), count: n)
+            i += n
+        }
+        return parts.joined(separator: " ")
+    }
 
     /// `kg` as plates the way they are usually loaded: 20s first, heaviest first. Leftovers under 1.25 are dropped.
     public static func make(_ kg: Double) -> [Double] {

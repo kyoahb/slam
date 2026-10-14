@@ -10,33 +10,38 @@ struct ActiveWorkoutView: View {
     @State private var askUnfinished = false
     @State private var nothingDone = false
 
+    private var list: some View {
+        VStack(spacing: 0) {
+            ForEach(editor.workout.exercises) { entry in
+                ExerciseCard(editor: editor, entry: entry)
+                Divider().overlay(Theme.line)
+            }
+            VStack(spacing: 10) {
+                Button { editor.picking = true } label: {
+                    Label("Add Exercise", systemImage: "plus")
+                }
+                .buttonStyle(FillButton(fill: Theme.blue))
+                HStack(spacing: 10) {
+                    Button("Settings") { showSettings = true }
+                        .buttonStyle(FillButton(fill: Theme.surface))
+                    Button("Discard Workout") { confirmDiscard = true }
+                        .buttonStyle(FillButton(fill: Theme.surface, text: Theme.red))
+                }
+            }
+            .padding(16)
+            .padding(.bottom, 20)
+        }
+    }
+
     var body: some View {
         NavigationStack {
             ScrollViewReader { proxy in
-                ScrollView {
-                    VStack(spacing: 0) {
-                        ForEach(editor.workout.exercises) { entry in
-                            ExerciseCard(editor: editor, entry: entry)
-                            Divider().overlay(Theme.line)
-                        }
-                        VStack(spacing: 10) {
-                            Button { editor.picking = true } label: {
-                                Label("Add Exercise", systemImage: "plus")
-                            }
-                            .buttonStyle(FillButton(fill: Theme.blue))
-                            HStack(spacing: 10) {
-                                Button("Settings") { showSettings = true }
-                                    .buttonStyle(FillButton(fill: Theme.surface))
-                                Button("Discard Workout") { confirmDiscard = true }
-                                    .buttonStyle(FillButton(fill: Theme.surface, text: Theme.red))
-                            }
-                        }
-                        .padding(16)
-                        .padding(.bottom, 20)
-                    }
-                }
+                ScrollView { list }
                 .onChange(of: editor.focus) { _, focus in
                     if let focus { withAnimation { proxy.scrollTo(focus.set, anchor: .center) } }
+                }
+                .onAppear {
+                    if let focus = editor.focus { proxy.scrollTo(focus.set, anchor: .center) }
                 }
             }
             .background(Theme.bg)
@@ -195,6 +200,29 @@ struct ReorderSheet: View {
     @Environment(\.dismiss) private var dismiss
     @Bindable var editor: WorkoutEditor
 
+    private var list: some View {
+        VStack(spacing: 0) {
+            ForEach(editor.workout.exercises) { entry in
+                ExerciseCard(editor: editor, entry: entry)
+                Divider().overlay(Theme.line)
+            }
+            VStack(spacing: 10) {
+                Button { editor.picking = true } label: {
+                    Label("Add Exercise", systemImage: "plus")
+                }
+                .buttonStyle(FillButton(fill: Theme.blue))
+                HStack(spacing: 10) {
+                    Button("Settings") { showSettings = true }
+                        .buttonStyle(FillButton(fill: Theme.surface))
+                    Button("Discard Workout") { confirmDiscard = true }
+                        .buttonStyle(FillButton(fill: Theme.surface, text: Theme.red))
+                }
+            }
+            .padding(16)
+            .padding(.bottom, 20)
+        }
+    }
+
     var body: some View {
         NavigationStack {
             List {
@@ -223,6 +251,29 @@ struct EntrySettingsSheet: View {
     @Environment(\.dismiss) private var dismiss
     @Bindable var editor: WorkoutEditor
     let entryId: UUID
+
+    private var list: some View {
+        VStack(spacing: 0) {
+            ForEach(editor.workout.exercises) { entry in
+                ExerciseCard(editor: editor, entry: entry)
+                Divider().overlay(Theme.line)
+            }
+            VStack(spacing: 10) {
+                Button { editor.picking = true } label: {
+                    Label("Add Exercise", systemImage: "plus")
+                }
+                .buttonStyle(FillButton(fill: Theme.blue))
+                HStack(spacing: 10) {
+                    Button("Settings") { showSettings = true }
+                        .buttonStyle(FillButton(fill: Theme.surface))
+                    Button("Discard Workout") { confirmDiscard = true }
+                        .buttonStyle(FillButton(fill: Theme.surface, text: Theme.red))
+                }
+            }
+            .padding(16)
+            .padding(.bottom, 20)
+        }
+    }
 
     var body: some View {
         NavigationStack {

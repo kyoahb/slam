@@ -39,7 +39,7 @@ extension AppModel {
             if let editor, let entry = editor.workout.exercises.first(where: { byId[$0.exerciseId]?.name == name }),
                entry.sets.count > 1 {
                 editor.select(Cell(entry: entry.id, set: entry.sets[1].id, field: .kg))
-                if screen == "plates" { editor.addPlate(2.5) } else { editor.toggleMicro(1) }
+                if screen == "plates" { editor.addPlate(2.5) } else { editor.toggleMicro(0.5) }
             }
         case "record":
             showWorkout = true

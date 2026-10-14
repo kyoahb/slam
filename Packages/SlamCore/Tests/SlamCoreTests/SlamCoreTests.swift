@@ -48,6 +48,7 @@ final class LoadTests: XCTestCase {
         XCTAssertEqual(bar.total, 80)
         XCTAssertEqual(bar.summary(.barbell), "20 10 a side")
         XCTAssertEqual(Load(base: 0, plates: [20, 20], sides: 1).summary(.plateLoaded), "20 20")
+        XCTAssertEqual(Load(base: 0, plates: [20, 20, 20, 20, 5], sides: 1).summary(.plateLoaded), "4×20 5")
         XCTAssertEqual(Load(base: 22.5, plates: [1]).summary(.dumbbell), "22.5 +1")
         XCTAssertNil(Load(base: 22.5).summary(.dumbbell))
     }

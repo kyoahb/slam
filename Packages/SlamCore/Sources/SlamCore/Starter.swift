@@ -4,17 +4,21 @@ public extension Library {
     /// 0.1.0 (1) and (2) put 47 starter exercises on every new install. Takes out the ones never used or changed,
     /// once, and says how many went. Delete this with the next change to the stored format.
     mutating func removeUnusedStarter() -> Int {
-        let used = Set(workouts.flatMap { $0.exercises.map(\.exerciseId) }
-            + routines.flatMap { $0.exercises.map(\.exerciseId) }
-            + (active?.exercises.map(\.exerciseId) ?? []))
+        var used = Set<UUID>()
+        for w in workouts { for e in w.exercises { used.insert(e.exerciseId) } }
+        for r in routines { for e in r.exercises { used.insert(e.exerciseId) } }
+        for e in active?.exercises ?? [] { used.insert(e.exerciseId) }
         let before = exercises.count
-        exercises.removeAll { e in
-            Self.starterNames.contains(e.name) && !used.contains(e.id) && e.stack.isEmpty && e.addOn == nil
-                && e.plateSides == 0 && e.bar == nil
-                && e.brand.isEmpty && e.photo == nil && e.hevyId == nil && e.secondary.isEmpty && !e.unilateral
-                && e.settings.allSatisfy { ["Incline", "Level"].contains($0.name) }
-        }
+        exercises.removeAll { !used.contains($0.id) && Self.untouchedStarter($0) }
         return before - exercises.count
+    }
+
+    private static func untouchedStarter(_ e: Exercise) -> Bool {
+        guard starterNames.contains(e.name), e.stack.isEmpty, e.addOn == nil, e.plateSides == 0, e.bar == nil else {
+            return false
+        }
+        guard e.brand.isEmpty, e.photo == nil, e.hevyId == nil, e.secondary.isEmpty, !e.unilateral else { return false }
+        return e.settings.allSatisfy { $0.name == "Incline" || $0.name == "Level" }
     }
 
     private static let starterNames: Set<String> = [
