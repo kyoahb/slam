@@ -26,7 +26,7 @@ struct Cell: Hashable {
 struct SetRef: Identifiable, Hashable {
     var entry: UUID
     var set: UUID
-    var id: UUID { set }
+    var id: UUID { self.set }
 }
 
 struct EntryRef: Identifiable, Hashable {
