@@ -11,6 +11,8 @@ public enum Server {
         }
         let tokens = try Tokens(phone: token("SLAM_PHONE_TOKEN"), read: token("SLAM_READ_TOKEN"),
                                 write: token("SLAM_WRITE_TOKEN"))
+        // Without it every answer with a date in it crashes the server.
+        guard TimeZone(identifier: "Europe/London") != nil else { throw ServerError.noTimeZones }
         let vault = try Vault(root: URL(fileURLWithPath: env["SLAM_DATA"] ?? "/data", isDirectory: true))
         let port = Int(env["SLAM_PORT"] ?? "") ?? 9097
         if let dir = env["SLAM_BACKUPS"] {
@@ -44,10 +46,12 @@ public enum Server {
 
 public enum ServerError: Error, CustomStringConvertible {
     case missing(String)
+    case noTimeZones
 
     public var description: String {
         switch self {
         case let .missing(name): "\(name) must be set (32 characters or more)"
+        case .noTimeZones: "no time zone data (install tzdata)"
         }
     }
 }

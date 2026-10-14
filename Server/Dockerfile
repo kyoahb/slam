@@ -10,6 +10,10 @@ RUN cd Server && swift build -c release --product slam --static-swift-stdlib \
     && cp "$(swift build -c release --show-bin-path)/slam" /slam
 
 FROM ubuntu:noble
+# Dates are UK clock times, which needs the time zone data.
+RUN apt-get update && DEBIAN_FRONTEND=noninteractive apt-get install -y --no-install-recommends tzdata \
+    && rm -rf /var/lib/apt/lists/*
+ENV TZ=Europe/London
 COPY --from=build /slam /usr/local/bin/slam
 # A new data volume takes this owner.
 RUN mkdir /data /backups && chown 1000:1000 /data /backups
