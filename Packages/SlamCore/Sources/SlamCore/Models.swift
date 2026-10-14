@@ -163,7 +163,7 @@ public struct Exercise: Codable, Hashable, Identifiable, Sendable {
     }
 
     public var initials: String {
-        let words = name.split(whereSeparator: { $0 == " " || $0 == "-" }).prefix(2)
+        let words = name.split(whereSeparator: { !$0.isLetter && !$0.isNumber }).prefix(2)
         return words.compactMap { $0.first.map(String.init) }.joined().uppercased()
     }
 }

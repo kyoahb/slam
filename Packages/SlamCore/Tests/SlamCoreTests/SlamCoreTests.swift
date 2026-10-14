@@ -135,6 +135,8 @@ final class FormatTests: XCTestCase {
         XCTAssertEqual(Format.secondsFromDigits("130"), 90)
         XCTAssertEqual(Format.secondsFromDigits("10000"), 3600)
         XCTAssertEqual(Format.digits(fromSeconds: 90), "130")
+        XCTAssertEqual(Exercise(name: "Deadlift (Barbell)").initials, "DB")
+        XCTAssertEqual(Exercise(name: "Precor T Bar Row - Row").initials, "PT")
     }
 }
 

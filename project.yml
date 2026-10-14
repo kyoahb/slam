@@ -45,28 +45,10 @@ targets:
         ASSETCATALOG_COMPILER_APPICON_NAME: AppIcon
         ASSETCATALOG_COMPILER_GLOBAL_ACCENT_COLOR_NAME: AccentColor
         ENABLE_PREVIEWS: true
-  SlamUITests:
-    type: bundle.ui-testing
-    platform: iOS
-    sources:
-      - path: SlamUITests
-    dependencies:
-      - target: Slam
-    settings:
-      base:
-        PRODUCT_BUNDLE_IDENTIFIER: com.kyoahb.slam.uitests
-        GENERATE_INFOPLIST_FILE: true
-        TEST_TARGET_NAME: Slam
-        TARGETED_DEVICE_FAMILY: "1"
 schemes:
   Slam:
     build:
       targets:
         Slam: all
-        SlamUITests: [test]
-    test:
-      config: Debug
-      targets:
-        - SlamUITests
     archive:
       config: Release

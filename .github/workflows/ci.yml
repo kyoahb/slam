@@ -7,10 +7,14 @@ concurrency:
   group: ci
   cancel-in-progress: true
 
+env:
+  HOMEBREW_NO_AUTO_UPDATE: 1
+  HOMEBREW_NO_INSTALL_CLEANUP: 1
+
 jobs:
   build:
     runs-on: macos-26
-    timeout-minutes: 45
+    timeout-minutes: 30
     steps:
       - uses: actions/checkout@v5
 
@@ -24,19 +28,19 @@ jobs:
                             key=lambda k: [int(x) for x in k.rsplit(".iOS-", 1)[1].split("-")])
           for name in ["iPhone 17e", "iPhone 17 Pro Max"]:
               udid = next(d["udid"] for k in reversed(runtimes) for d in data["devices"][k] if d["name"] == name)
-              print(udid)
+              print(udid, name.replace(" ", "-"))
           PY
           cat build/sims
-          for id in $(cat build/sims); do nohup xcrun simctl boot "$id" > /dev/null 2>&1 & done
+          while read -r id _; do nohup xcrun simctl boot "$id" > /dev/null 2>&1 & done < build/sims
 
       - name: Generate project
         run: brew install xcodegen && xcodegen generate
 
       - name: Build
         run: |
-          if ! xcodebuild build-for-testing -project Slam.xcodeproj -scheme Slam \
-              -destination "id=$(head -1 build/sims)" \
-              -derivedDataPath build/dd > build/build.log 2>&1; then
+          if ! xcodebuild build -project Slam.xcodeproj -scheme Slam \
+              -destination "id=$(head -1 build/sims | cut -d' ' -f1)" \
+              -derivedDataPath build/dd COMPILER_INDEX_STORE_ENABLE=NO > build/build.log 2>&1; then
             grep -E "error:" -A3 build/build.log | head -300
             exit 1
           fi
@@ -44,29 +48,29 @@ jobs:
 
       - name: Screenshots
         run: |
-          set -o pipefail
-          dest=()
-          for id in $(cat build/sims); do xcrun simctl bootstatus "$id" -b > /dev/null; dest+=(-destination "id=$id"); done
-          xcodebuild test-without-building -project Slam.xcodeproj -scheme Slam -derivedDataPath build/dd \
-            "${dest[@]}" \
-            -resultBundlePath build/Shots.xcresult 2>&1 | grep -E "Test (Case|Suite)|error|failed|passed" | tail -60
-
-      - name: Export screenshots
-        if: always()
-        run: |
-          [ -d build/Shots.xcresult ] || exit 0
-          xcrun xcresulttool export attachments --path build/Shots.xcresult --output-path shots
-          python3 - <<'PY'
-          import json, os, re
-          d = "shots"
-          for test in json.load(open(os.path.join(d, "manifest.json"))):
-              for a in test.get("attachments", []):
-                  name = a.get("suggestedHumanReadableName") or a["exportedFileName"]
-                  name = re.sub(r"_\d+_[0-9A-Fa-f-]{36}", "", name)
-                  name = re.sub(r"[^A-Za-z0-9.]+", "-", name)
-                  os.rename(os.path.join(d, a["exportedFileName"]), os.path.join(d, name))
-          PY
-          ls shots
+          mkdir -p shots
+          shoot() {
+            id=$1; dev=$2
+            xcrun simctl bootstatus "$id" -b > /dev/null
+            xcrun simctl status_bar "$id" override --time 9:41 --batteryState charged --batteryLevel 100 --wifiBars 3 --cellularMode notSupported
+            xcrun simctl install "$id" build/dd/Build/Products/Debug-iphonesimulator/Slam.app
+            for s in routines workout weight reps rest save picker routine history detail profile stats exercises exercise calendar photos settings; do
+              xcrun simctl launch --terminate-running-process "$id" com.kyoahb.slam -demo -screen "$s" > /dev/null
+              f="shots/$dev-$s.png"; prev=0
+              # Wait for a frame that is not black (about 50 KB) and has stopped changing.
+              for _ in $(seq 20); do
+                sleep 1.5
+                xcrun simctl io "$id" screenshot "$f" > /dev/null 2>&1
+                size=$(stat -f %z "$f")
+                [ "$size" -gt 90000 ] && [ $(( (size - prev) * (size - prev) * 2500 )) -lt $(( size * size )) ] && break
+                prev=$size
+              done
+            done
+          }
+          pids=()
+          while read -r id dev; do shoot "$id" "$dev" & pids+=($!); done < build/sims
+          for p in "${pids[@]}"; do wait "$p"; done
+          ls -l shots
 
       - uses: actions/upload-artifact@v4
         if: always()
