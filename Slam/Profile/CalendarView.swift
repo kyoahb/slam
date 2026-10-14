@@ -10,17 +10,15 @@ struct CalendarView: View {
         let dates = model.workouts.map(\.start)
         let byDay = Dictionary(grouping: model.workouts) { calendar.startOfDay(for: $0.start) }
         let months = monthList(dates)
-        ScrollViewReader { proxy in
-            ScrollView {
-                LazyVStack(alignment: .leading, spacing: 26) {
-                    ForEach(months, id: \.self) { m in
-                        MonthGrid(month: m, calendar: calendar, byDay: byDay).id(m)
-                    }
+        ScrollView {
+            LazyVStack(alignment: .leading, spacing: 26) {
+                ForEach(months, id: \.self) { m in
+                    MonthGrid(month: m, calendar: calendar, byDay: byDay)
                 }
-                .padding(16)
             }
-            .onAppear { if let last = months.last { proxy.scrollTo(last, anchor: .bottom) } }
+            .padding(16)
         }
+        .defaultScrollAnchor(.bottom)
         .background(Theme.bg)
         .safeAreaInset(edge: .top, spacing: 0) {
             HStack(spacing: 28) {

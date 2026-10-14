@@ -86,7 +86,9 @@ struct MiniWorkoutBar: View {
             }
             .padding(.horizontal, 16)
             .padding(.vertical, 10)
-            .background(RoundedRectangle(cornerRadius: 14).fill(Theme.surface))
+            .background(RoundedRectangle(cornerRadius: 14).fill(Theme.line))
+            .overlay(RoundedRectangle(cornerRadius: 14).strokeBorder(Theme.control, lineWidth: 1))
+            .shadow(color: .black.opacity(0.5), radius: 8, y: 2)
             .padding(.horizontal, 12)
             .padding(.bottom, 6)
             .confirmationDialog("Discard this workout?", isPresented: $confirmDiscard, titleVisibility: .visible) {

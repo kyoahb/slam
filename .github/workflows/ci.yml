@@ -14,14 +14,28 @@ jobs:
     steps:
       - uses: actions/checkout@v5
 
+      - name: Boot simulators
+        run: |
+          mkdir -p build
+          python3 - <<'PY' > build/sims
+          import json, subprocess
+          data = json.loads(subprocess.check_output(["xcrun", "simctl", "list", "devices", "available", "-j"]))
+          runtimes = sorted((k for k in data["devices"] if ".iOS-" in k),
+                            key=lambda k: [int(x) for x in k.rsplit(".iOS-", 1)[1].split("-")])
+          for name in ["iPhone 17e", "iPhone 17 Pro Max"]:
+              udid = next(d["udid"] for k in reversed(runtimes) for d in data["devices"][k] if d["name"] == name)
+              print(udid)
+          PY
+          cat build/sims
+          for id in $(cat build/sims); do nohup xcrun simctl boot "$id" > /dev/null 2>&1 & done
+
       - name: Generate project
         run: brew install xcodegen && xcodegen generate
 
       - name: Build
         run: |
-          mkdir -p build
           if ! xcodebuild build-for-testing -project Slam.xcodeproj -scheme Slam \
-              -destination 'platform=iOS Simulator,name=iPhone 17e' \
+              -destination "id=$(head -1 build/sims)" \
               -derivedDataPath build/dd > build/build.log 2>&1; then
             grep -E "error:" -A3 build/build.log | head -300
             exit 1
@@ -31,9 +45,10 @@ jobs:
       - name: Screenshots
         run: |
           set -o pipefail
+          dest=()
+          for id in $(cat build/sims); do xcrun simctl bootstatus "$id" -b > /dev/null; dest+=(-destination "id=$id"); done
           xcodebuild test-without-building -project Slam.xcodeproj -scheme Slam -derivedDataPath build/dd \
-            -destination 'platform=iOS Simulator,name=iPhone 17e' \
-            -destination 'platform=iOS Simulator,name=iPhone 17 Pro Max' \
+            "${dest[@]}" \
             -resultBundlePath build/Shots.xcresult 2>&1 | grep -E "Test (Case|Suite)|error|failed|passed" | tail -60
 
       - name: Export screenshots

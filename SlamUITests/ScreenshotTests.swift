@@ -17,8 +17,15 @@ final class ScreenshotTests: XCTestCase {
             app.launchArguments = ["-demo", "-screen", screen]
             app.launch()
             _ = app.wait(for: .runningForeground, timeout: 10)
-            Thread.sleep(forTimeInterval: 2.5)
-            let shot = XCTAttachment(screenshot: app.screenshot())
+            Thread.sleep(forTimeInterval: 1.5)
+            // A simulator that is still starting up gives a black frame (about 50 KB as PNG).
+            var image = app.screenshot()
+            let deadline = Date().addingTimeInterval(30)
+            while image.pngRepresentation.count < 90_000 && Date() < deadline {
+                Thread.sleep(forTimeInterval: 1)
+                image = app.screenshot()
+            }
+            let shot = XCTAttachment(screenshot: image)
             shot.name = "\(device) \(screen)"
             shot.lifetime = .keepAlways
             add(shot)

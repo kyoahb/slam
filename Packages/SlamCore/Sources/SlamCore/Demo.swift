@@ -173,7 +173,9 @@ public enum Demo {
             active.exercises[0].note = ""
         }
 
-        return Library(exercises: exercises + Catalog.starter(), folders: [folder], routines: routines,
+        let names = Set(exercises.map { $0.name.lowercased() })
+        let extra = Catalog.starter().filter { !names.contains($0.name.lowercased()) }
+        return Library(exercises: exercises + extra, folders: [folder], routines: routines,
                        gyms: [anytime, gymGroup], settings: Settings(gymId: anytime.id), workouts: workouts,
                        active: active)
     }
