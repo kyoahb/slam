@@ -63,6 +63,22 @@ public actor Vault {
         return try accept(r)
     }
 
+    /// Makes the server hold exactly `lib`, as edits made now. Refuses while it holds a workout `lib` lacks,
+    /// so a logged workout is never lost. Returns how many records were written and deleted.
+    public func replace(with lib: Library) throws -> (written: Int, deleted: Int) {
+        let incoming = Sync.records(lib).filter { $0.value.kind != .active }
+        let lost = records.values.filter { $0.kind == .workout && !$0.deleted && incoming[$0.key] == nil }
+        guard lost.isEmpty else { throw VaultError.wouldLose(lost.count) }
+        var written = 0, deleted = 0
+        for r in incoming.values.sorted(by: { $0.key < $1.key }) {
+            if try put(r) { written += 1 }
+        }
+        for r in records.values.sorted(by: { $0.key < $1.key }) where !r.deleted && r.kind != .active && incoming[r.key] == nil {
+            if try put(r.tombstone()) { deleted += 1 }
+        }
+        return (written, deleted)
+    }
+
     public func record(_ key: String) -> SyncRecord? {
         records[key].flatMap { $0.deleted ? nil : $0 }
     }
@@ -123,10 +139,12 @@ public actor Vault {
 
 public enum VaultError: Error, CustomStringConvertible {
     case badId(String)
+    case wouldLose(Int)
 
     public var description: String {
         switch self {
         case let .badId(id): "not a usable id: \(id)"
+        case let .wouldLose(n): "the server holds \(n) workouts the library does not; nothing changed"
         }
     }
 }

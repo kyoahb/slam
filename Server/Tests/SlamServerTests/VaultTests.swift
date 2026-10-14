@@ -43,6 +43,32 @@ final class VaultTests: XCTestCase {
         XCTAssertEqual(names, ["Push A"])
     }
 
+    func testReplaceKeepsOnlyTheLibrary() async throws {
+        let vault = try Vault(root: dir)
+        let old = UUID()
+        _ = try await vault.sync(SyncRequest(cursor: 0, changes: [routine(old, "Check", at: 1000)]))
+        var lib = Library()
+        lib.exercises = [Exercise(name: "Press")]
+        lib.workouts = [Workout(title: "Push")]
+        let (written, deleted) = try await vault.replace(with: lib)
+        XCTAssertEqual(written, 3)
+        XCTAssertEqual(deleted, 1)
+        let now = await vault.library()
+        XCTAssertEqual(now.exercises.map(\.name), ["Press"])
+        XCTAssertEqual(now.workouts.map(\.title), ["Push"])
+        XCTAssertTrue(now.routines.isEmpty)
+
+        // A workout logged since is never dropped.
+        do {
+            _ = try await vault.replace(with: Library())
+            XCTFail("replaced away a workout")
+        } catch VaultError.wouldLose(let n) {
+            XCTAssertEqual(n, 1)
+        }
+        let after = await vault.library()
+        XCTAssertEqual(after.workouts.count, 1)
+    }
+
     func testDeleteMarkerAndActiveStayHere() async throws {
         let vault = try Vault(root: dir)
         let id = UUID()

@@ -9,7 +9,9 @@ let package = Package(
         .package(url: "https://github.com/hummingbird-project/hummingbird.git", from: "2.28.0"),
     ],
     targets: [
-        .executableTarget(name: "slam", dependencies: ["SlamServer", "HevyImport"]),
+        .executableTarget(name: "slam", dependencies: [
+            "SlamServer", "HevyImport", .product(name: "SlamCore", package: "SlamCore"),
+        ]),
         .target(name: "SlamServer", dependencies: [
             .product(name: "SlamCore", package: "SlamCore"),
             .product(name: "Hummingbird", package: "hummingbird"),
