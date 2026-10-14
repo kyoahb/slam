@@ -97,13 +97,13 @@ struct ActiveWorkoutView: View {
         }
         .overlay(alignment: .top) {
             if let banner = editor.banner {
-                RecordBannerView(banner: banner)
-                    .onTapGesture { editor.banner = nil }
-                    .transition(.move(edge: .top).combined(with: .opacity))
-                    .task(id: banner.id) {
-                        try? await Task.sleep(for: .seconds(model.demo ? 600 : 4))
-                        if editor.banner?.id == banner.id { editor.banner = nil }
-                    }
+                SwipeAway(seconds: model.demo ? 600 : 4) {
+                    if editor.banner?.id == banner.id { editor.banner = nil }
+                } content: {
+                    RecordBannerView(banner: banner)
+                }
+                .id(banner.id)
+                .transition(.move(edge: .top).combined(with: .opacity))
             }
         }
         .animation(.spring(duration: 0.45, bounce: 0.25), value: editor.banner?.id)

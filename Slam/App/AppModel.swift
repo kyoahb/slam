@@ -427,6 +427,30 @@ final class AppModel {
         return thumb
     }
 
+    /// Everything on this phone gone. With sync on, the server's copy goes too: first the phone takes in all the
+    /// server has, then each record goes back up as deleted.
+    func deleteAllData() async {
+        if syncConfig != nil { await syncNow() }
+        editor = nil
+        routineEditor = nil
+        showWorkout = false
+        skipRest()
+        exercises = []
+        folders = []
+        routines = []
+        gyms = []
+        workouts = []
+        settings = SlamCore.Settings()
+        try? store.wipe()
+        thumbs.removeAllObjects()
+        reindex()
+        recomputeRecords()
+        historyPath = NavigationPath()
+        profilePath = NavigationPath()
+        refreshLiveActivity()
+        await syncNow()
+    }
+
     func exportFile() -> URL? {
         let lib = Library(exercises: exercises, folders: folders, routines: routines, gyms: gyms, settings: settings,
                           workouts: workouts)

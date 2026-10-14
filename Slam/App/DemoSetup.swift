@@ -32,19 +32,21 @@ extension AppModel {
                     editor.addPlate(5)
                 }
             }
-        case "plates", "dumbbell":
+        case "plates", "dumbbell", "tbar":
             showWorkout = true
-            // Set 2 of the bench (one more plate than last time), or of the lateral raise with a pair of small plates.
-            let name = screen == "plates" ? "Bench Press (Barbell)" : "Lateral Raise (Dumbbell)"
+            // Set 2 of the bench (one more plate than last time), of the lateral raise with two clip-ons, or of the T-bar row.
+            let name = ["plates": "Bench Press (Barbell)", "dumbbell": "Lateral Raise (Dumbbell)"][screen] ?? "Precor T Bar Row - Row"
             if let editor, let entry = editor.workout.exercises.first(where: { byId[$0.exerciseId]?.name == name }),
                entry.sets.count > 1 {
                 editor.select(Cell(entry: entry.id, set: entry.sets[1].id, field: .kg))
                 if screen == "plates" {
                     editor.addPlate(2.5)
-                } else {
+                } else if screen == "dumbbell" {
                     editor.clearPlates()
-                    editor.addPlate(0.25)
-                    editor.addPlate(0.25)
+                    editor.toggleClip(0.5)
+                    editor.toggleClip(1)
+                } else {
+                    editor.addPlate(5)
                 }
             }
         case "record":

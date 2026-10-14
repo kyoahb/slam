@@ -78,3 +78,50 @@ struct RecordBannerView: View {
 
     private static func kg(_ v: Double) -> String { Format.kg(v.rounded(toPlaces: 1)) + " kg" }
 }
+
+/// Follows the finger: flicked up or sideways it flies off, let go early it springs back. Tapped, or after a
+/// few seconds untouched, it goes too.
+struct SwipeAway<Content: View>: View {
+    let seconds: Double
+    let dismiss: () -> Void
+    @ViewBuilder let content: Content
+    @State private var offset: CGSize = .zero
+    @State private var held = false
+
+    var body: some View {
+        content
+            .offset(offset)
+            .opacity(1 - min(0.6, abs(offset.width) / 400))
+            .onTapGesture(perform: dismiss)
+            .gesture(
+                DragGesture(minimumDistance: 6)
+                    .onChanged { v in
+                        held = true
+                        let t = v.translation
+                        // Up and sideways follow the finger; down only gives a little.
+                        offset = CGSize(width: t.width, height: t.height < 0 ? t.height : t.height / 5)
+                    }
+                    .onEnded { v in
+                        held = false
+                        let p = v.predictedEndTranslation
+                        let side = abs(p.width) > abs(p.height)
+                        guard p.height < -50 || abs(p.width) > 120 else {
+                            withAnimation(.spring(duration: 0.3)) { offset = .zero }
+                            return
+                        }
+                        withAnimation(.easeOut(duration: 0.18)) {
+                            offset = side ? CGSize(width: p.width > 0 ? 500 : -500, height: offset.height)
+                                          : CGSize(width: offset.width, height: -300)
+                        } completion: {
+                            dismiss()
+                        }
+                    }
+            )
+            .task {
+                try? await Task.sleep(for: .seconds(seconds))
+                guard !Task.isCancelled else { return }
+                while held { try? await Task.sleep(for: .milliseconds(200)) }
+                dismiss()
+            }
+    }
+}

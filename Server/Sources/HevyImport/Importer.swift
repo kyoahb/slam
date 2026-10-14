@@ -42,6 +42,7 @@ final class Plan {
     var slots: [Int: Set<Double>] = [:]
     var slotDay: [Int: String] = [:]
     var addOn: (day: String, kg: Double)?
+    var pin = false
     var bar: (day: String, kg: Double, source: String)?
     var settingsUsed: [String] = []
 
@@ -63,6 +64,7 @@ final class Plan {
         slots[g, default: []].insert(load.base)
         if day >= slotDay[g] ?? "" { slotDay[g] = day }
         if load.addOn > 0, day >= addOn?.day ?? "" { addOn = (day, load.addOn) }
+        if !load.plates.isEmpty { pin = true }
     }
 }
 
@@ -665,7 +667,10 @@ final class Importer {
             if p.exercise.rig == .stack, let g = p.slotDay.max(by: { $0.value < $1.value })?.key {
                 p.exercise.stack = p.slots[g]!.sorted()
             }
-            if p.exercise.rig == .stack { p.exercise.addOn = p.addOn?.kg }
+            if p.exercise.rig == .stack {
+                p.exercise.addOn = p.addOn?.kg
+                p.exercise.pin = p.pin
+            }
             if p.exercise.equipment == .barbell { p.exercise.bar = p.bar?.kg ?? p.ruleBar ?? 20 }
         }
         var names: [ObjectIdentifier: [String]] = [:]

@@ -25,7 +25,7 @@ public enum Demo {
         let incline = Configurable(name: "Incline", perWorkout: true), level = Configurable(name: "Level", perWorkout: true)
 
         let legExt = Exercise(name: "Precor Leg Extension", primary: .quadriceps, unilateral: true,
-                              stack: Exercise.slots(from: 4, step: 7, to: 109), addOn: 2, brand: "Precor",
+                              stack: Exercise.slots(from: 4, step: 7, to: 109), addOn: 2, pin: true, brand: "Precor",
                               settings: [seat, large, small])
         let legCurl = Exercise(name: "Precor Prone Leg Curl Bilateral", primary: .hamstrings,
                                stack: Exercise.slots(from: 7, step: 7, to: 105), addOn: 2, brand: "Precor", settings: [pad, lever])

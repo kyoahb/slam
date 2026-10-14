@@ -215,6 +215,28 @@ final class StoreTests: XCTestCase {
         let set = try FileStore.decoder.decode(WorkSet.self, from: Data(old.utf8))
         XCTAssertEqual(set.kind, .normal)
         XCTAssertFalse(set.done)
+        // An exercise from before the pin was kept has none.
+        let ex = try FileStore.decoder.decode(Exercise.self, from: Data(#"{"id":"7C9E6679-7425-40DE-944B-E07FC1F90AE7","name":"Row"}"#.utf8))
+        XCTAssertFalse(ex.pin)
+        XCTAssertTrue(back.exercises.first?.pin ?? false)
+    }
+
+    func testWipeKeepsWhatSyncRemembers() throws {
+        let dir = FileManager.default.temporaryDirectory.appendingPathComponent(UUID().uuidString)
+        defer { try? FileManager.default.removeItem(at: dir) }
+        let store = FileStore(root: dir)
+        let lib = Demo.library()
+        try store.save(lib)
+        var state = SyncState()
+        state.synced = Sync.records(lib).mapValues(\.fingerprint)
+        try store.saveSync(state)
+        try store.wipe()
+        let back = try store.load()
+        XCTAssertTrue(back.exercises.isEmpty && back.workouts.isEmpty && back.routines.isEmpty && back.gyms.isEmpty)
+        XCTAssertNil(back.active)
+        // Every record the server has goes back up as deleted.
+        let sent = Sync.changes(back, store.loadSync()) { _ in nil }
+        XCTAssertEqual(sent.filter(\.deleted).count, state.synced.count - 1)
     }
 }
 

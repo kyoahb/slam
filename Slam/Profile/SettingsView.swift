@@ -9,6 +9,8 @@ struct SettingsView: View {
     @State private var addingGym = false
     @State private var gymName = ""
     @State private var export: ExportFile?
+    @State private var confirmDelete = false
+    @State private var deleting = false
 
     struct ExportFile: Identifiable {
         let url: URL
@@ -61,6 +63,18 @@ struct SettingsView: View {
                     if let url = model.exportFile() { export = ExportFile(url: url) }
                 }
             }
+            Section {
+                Button(role: .destructive) { confirmDelete = true } label: {
+                    HStack {
+                        Label("Delete All Data", systemImage: "trash")
+                        if deleting {
+                            Spacer()
+                            ProgressView()
+                        }
+                    }
+                }
+                .disabled(deleting)
+            }
         }
         .scrollContentBackground(.hidden)
         .background(Theme.bg)
@@ -88,6 +102,19 @@ struct SettingsView: View {
                 naming = nil
             }
             Button("Cancel", role: .cancel) { naming = nil }
+        }
+        .confirmationDialog("Delete all data?", isPresented: $confirmDelete, titleVisibility: .visible) {
+            Button("Delete All Data", role: .destructive) {
+                deleting = true
+                Task {
+                    await model.deleteAllData()
+                    deleting = false
+                }
+            }
+        } message: {
+            Text(model.syncConfig == nil
+                 ? "Every workout, routine, exercise, gym and photo on this phone is deleted."
+                 : "Every workout, routine, exercise, gym and photo is deleted, on this phone and on the server.")
         }
         .sheet(item: $export) { f in
             ShareSheet(items: [f.url]).presentationDetents([.medium, .large])

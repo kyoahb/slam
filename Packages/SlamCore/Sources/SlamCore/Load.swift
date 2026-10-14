@@ -84,7 +84,7 @@ public enum Plates {
     /// Plates for bars, plate-loaded machines and the gym pin, heaviest first.
     public static let standard: [Double] = [25, 20, 15, 10, 5, 2.5, 1.25]
     /// Small plates that clip onto a dumbbell, often in pairs.
-    public static let micro: [Double] = [0.25, 0.5, 1, 1.25]
+    public static let micro: [Double] = [0.25, 0.5, 1, 1.5]
 
     /// "20 20 20 20 5" as "4×20 5": three or more of a plate in a row are counted.
     public static func short(_ plates: [Double]) -> String {
@@ -140,16 +140,5 @@ public extension Exercise {
     /// A set before anything is picked: the bare bar or machine, nothing on the stack.
     var emptyLoad: Load {
         Load(base: rig == .barbell || rig == .plateLoaded ? barWeight : 0, sides: sides)
-    }
-}
-
-public extension WorkSet {
-    /// What the weight column shows: the slot or dumbbell when extras go on top of it, else the total.
-    func shownKg(_ rig: Rig) -> Double? {
-        guard let kg else { return nil }
-        switch rig {
-        case .stack, .dumbbell: return load?.base ?? kg
-        default: return kg
-        }
     }
 }

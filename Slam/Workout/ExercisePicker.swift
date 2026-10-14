@@ -273,6 +273,7 @@ struct ExerciseForm: View {
                     // Only what this equipment uses is kept.
                     if e.equipment != .machine { e.plateSides = 0 }
                     if e.rig != .stack || (e.addOn ?? 0) <= 0 { e.addOn = nil }
+                    if e.rig != .stack { e.pin = false }
                     if e.rig != .stack { e.stack = [] }
                     if e.rig != .barbell && e.rig != .plateLoaded { e.bar = nil }
                     onSave(e)
@@ -316,6 +317,7 @@ extension ExerciseForm {
                         }
                     }
                     KgField(title: "Add-on Weight", value: $exercise.addOn, placeholder: "None")
+                    Toggle("Pin for Plates", isOn: $exercise.pin)
                 case .plateLoaded:
                     Picker("Plates Go On", selection: $exercise.plateSides) {
                         Text("Both Sides").tag(2)

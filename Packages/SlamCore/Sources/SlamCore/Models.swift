@@ -42,6 +42,15 @@ public enum ExerciseType: String, Codable, CaseIterable, Sendable {
     }
 
     public var hasDistance: Bool { self == .distanceDuration || self == .shortDistanceWeight }
+
+    /// Weight added to the body ("+") or taken off it ("−"); empty when the weight is the load itself.
+    public var kgSign: String {
+        switch self {
+        case .bodyweightReps: "+"
+        case .assistedBodyweight: "−"
+        default: ""
+        }
+    }
 }
 
 public enum Equipment: String, Codable, CaseIterable, Sendable {
@@ -96,6 +105,8 @@ public struct Exercise: Codable, Hashable, Identifiable, Sendable {
     public var stack: [Double]
     /// A fixed extra weight the machine can add on top, switched on or off per set. Nil: the machine has none.
     public var addOn: Double?
+    /// A stack machine with a pin that plates can hang on.
+    public var pin: Bool
     /// A machine loaded with plates instead of a stack: 1 or 2 sides. 0: a stack machine.
     public var plateSides: Int
     /// The bar, or a plate-loaded machine's own weight. Nil: 20 on a barbell, else 0.
@@ -107,7 +118,7 @@ public struct Exercise: Codable, Hashable, Identifiable, Sendable {
 
     public init(id: UUID = UUID(), name: String, type: ExerciseType = .weightReps, equipment: Equipment = .machine,
                 primary: Muscle = .other, secondary: [Muscle] = [], unilateral: Bool = false, stack: [Double] = [],
-                addOn: Double? = nil, plateSides: Int = 0, bar: Double? = nil, brand: String = "",
+                addOn: Double? = nil, pin: Bool = false, plateSides: Int = 0, bar: Double? = nil, brand: String = "",
                 settings: [Configurable] = [], photo: String? = nil, hevyId: String? = nil) {
         self.id = id
         self.name = name
@@ -118,6 +129,7 @@ public struct Exercise: Codable, Hashable, Identifiable, Sendable {
         self.unilateral = unilateral
         self.stack = stack
         self.addOn = addOn
+        self.pin = pin
         self.plateSides = plateSides
         self.bar = bar
         self.brand = brand
@@ -137,6 +149,7 @@ public struct Exercise: Codable, Hashable, Identifiable, Sendable {
         unilateral = try c.value(.unilateral, false)
         stack = try c.value(.stack, [])
         addOn = try c.decodeIfPresent(Double.self, forKey: .addOn)
+        pin = try c.value(.pin, false)
         plateSides = try c.value(.plateSides, 0)
         bar = try c.decodeIfPresent(Double.self, forKey: .bar)
         brand = try c.value(.brand, "")

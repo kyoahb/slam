@@ -92,6 +92,16 @@ public struct FileStore: Sendable {
         }
     }
 
+    /// Deletes everything kept here except what sync remembers, so the deletions can still reach the server.
+    public func wipe() throws {
+        let fm = FileManager.default
+        for name in ["exercises.json", "routines.json", "gyms.json", "settings.json", "active.json", "workouts", "photos"] {
+            let url = root.appendingPathComponent(name)
+            if fm.fileExists(atPath: url.path) { try fm.removeItem(at: url) }
+        }
+        try prepare()
+    }
+
     /// One file with everything, for backups and for Cycler.
     public func export(_ lib: Library) throws -> Data {
         struct Export: Codable {

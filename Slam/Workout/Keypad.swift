@@ -1,38 +1,32 @@
 import SwiftUI
 import SlamCore
 
-/// Digits, or what the equipment needs for its weight: a stack's slots and add-on, plates on a bar, the pin or a dumbbell.
+/// Digits, or what the exercise needs to make up its weight; the bar on top shows the parts and their total.
 /// RIR sits on top for reps.
 struct Keypad: View {
     @Bindable var editor: WorkoutEditor
 
     static let keyColor = Color(hex: 0x2C2C2E)
+    static let height: CGFloat = 4 * 46 + 3 * 6
 
     var body: some View {
         let f = editor.focus
-        let ex = f.flatMap { editor.exercise(entry: $0.entry) }
-        let rig = f?.field == .kg ? ex?.rig : nil
+        let ex = f?.field == .kg ? f.flatMap { editor.exercise(entry: $0.entry) } : nil
         VStack(spacing: 6) {
             if let f, f.field == .reps || f.field == .repsR, editor.set(f)?.kind != .warmup {
                 rirBar(f)
-            } else if let f, rig == .stack, let amount = ex?.addOn {
-                addOnBar(f, amount)
-            } else if let f, rig == .dumbbell {
-                microBar(f)
+            } else if let f, let ex {
+                weightBar(f, ex)
             }
             HStack(spacing: 6) {
-                if let f, let ex, let rig {
-                    weight(f, ex, rig)
+                if let f, let ex {
+                    weight(f, ex)
                 } else {
                     digits
                 }
                 VStack(spacing: 6) {
                     key(Image(systemName: "keyboard.chevron.compact.down")) { editor.select(nil) }
-                    if rig == .stack, let ex {
-                        key(Text(editor.pinPlates ? (ex.stack.isEmpty ? "123" : "Stack") : "Pin").font(.system(size: 17, weight: .semibold))) {
-                            editor.pinPlates.toggle()
-                        }
-                    }
+                        .frame(height: 46)
                     Button { editor.next() } label: {
                         Text("Next")
                             .font(.system(size: 18, weight: .semibold))
@@ -44,7 +38,7 @@ struct Keypad: View {
                 }
                 .frame(width: 80)
             }
-            .frame(height: 4 * 46 + 3 * 6)
+            .frame(height: Self.height)
         }
         .padding(.horizontal, 6)
         .padding(.top, 6)
@@ -52,39 +46,69 @@ struct Keypad: View {
         .background(Theme.keypad.ignoresSafeArea(edges: .bottom))
     }
 
+    // MARK: Keys
+
     @ViewBuilder
-    private func weight(_ f: Cell, _ ex: Exercise, _ rig: Rig) -> some View {
-        switch rig {
+    private func weight(_ f: Cell, _ ex: Exercise) -> some View {
+        switch ex.rig {
         case .barbell, .plateLoaded:
-            plates(f, title: ex.sides > 1 ? "Each side" : "Plates")
+            plates(f, label: ex.sides > 1 ? "EACH SIDE ×2" : "ONE SIDE")
         case .stack where editor.pinPlates:
-            plates(f, title: "Pin")
+            plates(f, label: "PIN")
         case .stack where !ex.stack.isEmpty:
             slots(f, ex.stack)
+        case .dumbbell:
+            dumbbell(f)
         default:
             digits
         }
     }
 
     private var digits: some View {
+        digitRows { _ in EmptyView() }
+    }
+
+    /// 1 to 9, then . 0 ⌫; `extra` adds a fourth key to each row.
+    private func digitRows<E: View>(@ViewBuilder extra: @escaping (Int) -> E) -> some View {
         VStack(spacing: 6) {
-            row([1, 2, 3])
-            row([4, 5, 6])
-            row([7, 8, 9])
-            HStack(spacing: 6) {
-                key(Text(".")) { editor.key(.dot) }
-                    .disabled(!(editor.focus?.field.allowsDot ?? false))
-                key(Text("0")) { editor.key(.digit(0)) }
-                key(Image(systemName: "delete.left")) { editor.key(.back) }
+            ForEach(0..<4, id: \.self) { r in
+                HStack(spacing: 6) {
+                    if r < 3 {
+                        ForEach(1...3, id: \.self) { c in
+                            let d = r * 3 + c
+                            key(Text(String(d))) { editor.key(.digit(d)) }
+                        }
+                    } else {
+                        key(Text(".")) { editor.key(.dot) }
+                            .disabled(!(editor.focus?.field.allowsDot ?? false))
+                        key(Text("0")) { editor.key(.digit(0)) }
+                        key(Image(systemName: "delete.left")) { editor.key(.back) }
+                    }
+                    extra(r)
+                }
             }
         }
     }
 
-    private func row(_ list: [Int]) -> some View {
-        HStack(spacing: 6) {
-            ForEach(list, id: \.self) { d in
-                key(Text(String(d))) { editor.key(.digit(d)) }
+    /// Digits for the dumbbell, its clip-ons down the side: each one on or off. Last time's are outlined.
+    private func dumbbell(_ f: Cell) -> some View {
+        let on = editor.load(f)?.plates ?? []
+        let own = editor.set(f)?.kg != nil
+        return digitRows { r in
+            let p = Plates.micro[r]
+            let picked = on.contains { abs($0 - p) < 0.01 }
+            Button { editor.toggleClip(p) } label: {
+                Text("+" + Format.kg(p))
+                    .font(.system(size: 17, weight: .semibold))
+                    .monospacedDigit()
+                    .foregroundStyle(picked && own ? .black : Theme.plate)
+                    .frame(maxWidth: .infinity, maxHeight: .infinity)
+                    .background(RoundedRectangle(cornerRadius: 8).fill(picked && own ? Theme.plate : Self.keyColor))
+                    .overlay {
+                        if picked && !own { RoundedRectangle(cornerRadius: 8).strokeBorder(Theme.plate, lineWidth: 2) }
+                    }
             }
+            .buttonStyle(.plain)
         }
     }
 
@@ -135,40 +159,47 @@ struct Keypad: View {
         proxy.scrollTo(slot, anchor: .center)
     }
 
-    /// What is loaded (tap one to take it off), then a key per plate to put one on.
-    private func plates(_ f: Cell, title: String) -> some View {
+    /// The plates as they sit on the sleeve (tap one to take it off), then a key per plate to put one on.
+    private func plates(_ f: Cell, label: String) -> some View {
         let list = editor.load(f)?.plates ?? []
         let own = editor.set(f)?.kg != nil
         let sizes = Plates.standard
         return VStack(spacing: 6) {
-            HStack(spacing: 8) {
-                Text(title)
-                    .font(.system(size: 13, weight: .bold))
-                    .foregroundStyle(Theme.plate)
-                    .fixedSize()
+            HStack(spacing: 0) {
+                UnevenRoundedRectangle(topLeadingRadius: 3, bottomLeadingRadius: 3)
+                    .fill(Theme.dim)
+                    .frame(width: 26, height: 10)
+                RoundedRectangle(cornerRadius: 2).fill(Theme.grey).frame(width: 8, height: 26)
                 ScrollView(.horizontal, showsIndicators: false) {
-                    HStack(spacing: 6) {
-                        if list.isEmpty {
-                            Text("None").font(.system(size: 16, weight: .semibold)).foregroundStyle(Theme.dim)
-                        }
+                    HStack(spacing: 3) {
                         ForEach(Array(list.enumerated()), id: \.offset) { i, p in
-                            Button { editor.removePlate(at: i) } label: {
-                                Text(Format.kg(p))
-                                    .font(.system(size: 16, weight: .semibold))
-                                    .monospacedDigit()
-                                    .foregroundStyle(own ? .white : Theme.grey)
-                                    .padding(.horizontal, 11)
-                                    .frame(height: 32)
-                                    .background(Capsule().fill(Theme.control))
-                            }
-                            .buttonStyle(.plain)
+                            Button { editor.removePlate(at: i) } label: { plate(p) }
+                                .buttonStyle(.plain)
+                                .accessibilityLabel("Take off \(Format.kg(p)) kg")
                         }
                     }
+                    .padding(.leading, 3)
+                    .frame(height: 82)
+                    .opacity(own ? 1 : 0.35)
+                }
+                .background {
+                    UnevenRoundedRectangle(bottomTrailingRadius: 3, topTrailingRadius: 3)
+                        .fill(Theme.control)
+                        .frame(height: 10)
                 }
             }
             .padding(.horizontal, 10)
-            .frame(maxWidth: .infinity, minHeight: 46, maxHeight: 46, alignment: .leading)
+            .frame(maxWidth: .infinity, maxHeight: .infinity)
+            .overlay(alignment: .topTrailing) {
+                Text(label)
+                    .font(.system(size: 10, weight: .bold))
+                    .kerning(0.5)
+                    .foregroundStyle(Theme.plate)
+                    .padding(.top, 7)
+                    .padding(.trailing, 10)
+            }
             .background(RoundedRectangle(cornerRadius: 8).strokeBorder(Self.keyColor, lineWidth: 1.5))
+            .frame(height: 98)
             ForEach([Array(sizes.prefix(4)), Array(sizes.dropFirst(4))], id: \.self) { line in
                 HStack(spacing: 6) {
                     ForEach(line, id: \.self) { p in
@@ -185,47 +216,148 @@ struct Keypad: View {
         }
     }
 
-    private func addOnBar(_ f: Cell, _ amount: Double) -> some View {
-        let on = (editor.load(f)?.addOn ?? 0) > 0
-        return HStack(spacing: 6) {
-            Text("Add-on")
-                .font(.system(size: 13, weight: .bold))
-                .foregroundStyle(Theme.blue)
-                .frame(width: 56)
-            segment("+0", selected: !on) { if on { editor.toggleAddOn() } }
-            segment("+" + Format.kg(amount) + " kg", selected: on) { if !on { editor.toggleAddOn() } }
-        }
+    private func plate(_ kg: Double) -> some View {
+        let heights: [Double: CGFloat] = [25: 80, 20: 74, 15: 64, 10: 54, 5: 44, 2.5: 36, 1.25: 30]
+        return Text(Format.kg(kg))
+            .font(.system(size: kg < 2 ? 9 : kg < 5 ? 10 : 11, weight: .bold))
+            .monospacedDigit()
+            .foregroundStyle(Color(hex: 0x1B1230))
+            .frame(width: 26, height: heights[kg] ?? 30)
+            .background(RoundedRectangle(cornerRadius: 4).fill(Theme.plate))
     }
 
-    /// A dumbbell's small plates: each tap clips one more on ("+0.25 ×2").
-    private func microBar(_ f: Cell) -> some View {
-        let on = editor.load(f)?.plates ?? []
-        return HStack(spacing: 6) {
-            ForEach(Plates.micro, id: \.self) { p in
-                let n = on.filter { abs($0 - p) < 0.01 }.count
-                segment("+" + Format.kg(p) + (n > 1 ? " ×\(n)" : ""), selected: n > 0, fill: Theme.plate, ink: .black) {
-                    editor.addPlate(p)
+    // MARK: The weight's parts
+
+    /// One box with the total, or the parts that make it up and their sum. Stack and Pin are tabs,
+    /// the add-on switches on and off, a bar or machine's own weight is fixed.
+    @ViewBuilder
+    private func weightBar(_ f: Cell, _ ex: Exercise) -> some View {
+        let s = editor.set(f)
+        let own = s?.kg != nil
+        let l = editor.load(f) ?? ex.emptyLoad
+        let empty = editor.load(f) == nil
+        let sign = { (v: String) in v == "–" ? v : ex.type.kgSign + v }
+        let total = own || !empty || ex.rig == .barbell || ex.rig == .plateLoaded ? Format.kg(l.total) : "–"
+        let plateText = Format.kg(l.plates.reduce(0, +))
+        switch ex.rig {
+        case .stack:
+            let pin = ex.pin || !l.plates.isEmpty
+            let typed = ex.stack.isEmpty
+            if ex.addOn == nil && !pin {
+                single(stackTitle(ex), Theme.blue, sign(typed ? editor.partText(f) ?? "–" : total), dim: !own)
+            } else {
+                parts(sign(total), dim: !own) {
+                    Button { editor.pinPlates = false } label: {
+                        Chip(label: "STACK", ink: Theme.blue, value: (typed ? editor.partText(f) : nil) ?? Format.kg(l.base),
+                             look: editor.pinPlates ? .key : .active(Theme.blue, Color(hex: 0x16263F)),
+                             tail: typed && !editor.pinPlates ? .caret : nil)
+                    }
+                    .buttonStyle(.plain)
+                    if let a = ex.addOn {
+                        plus("+")
+                        Button { editor.toggleAddOn() } label: {
+                            Chip(label: "ADD-ON", ink: Theme.grey, value: Format.kg(a), badge: .toggle(l.addOn > 0),
+                                 off: l.addOn <= 0)
+                        }
+                        .buttonStyle(.plain)
+                    }
+                    if pin {
+                        plus("+")
+                        Button { editor.pinPlates = true } label: {
+                            Chip(label: "PIN", ink: Theme.plate, value: plateText,
+                                 look: editor.pinPlates ? .active(Theme.plate, Color(hex: 0x2A2238)) : .key)
+                        }
+                        .buttonStyle(.plain)
+                    }
                 }
             }
-            segment("Clear", selected: false) { editor.clearPlates() }
-                .opacity(on.isEmpty ? 0.4 : 1)
-                .disabled(on.isEmpty)
+        case .barbell, .plateLoaded:
+            if l.base <= 0 && ex.rig == .plateLoaded {
+                single("Plates", Theme.plate, total, sub: ex.sides > 1 ? "each side ×2" : "one side", dim: !own)
+            } else {
+                parts(total, dim: !own) {
+                    Chip(label: ex.rig == .barbell ? "BAR" : "MACHINE", ink: Theme.grey, value: Format.kg(l.base),
+                         look: .locked, badge: .lock)
+                    plus(ex.sides > 1 ? "+ 2×" : "+")
+                    Chip(label: ex.sides > 1 ? "EACH SIDE" : "ONE SIDE", ink: Theme.plate, value: plateText,
+                         look: .active(Theme.plate, Color(hex: 0x2A2238)))
+                }
+            }
+        case .dumbbell:
+            if l.plates.isEmpty {
+                single("Dumbbell", Theme.blue, editor.partText(f) ?? "–", dim: !own)
+            } else {
+                parts(total, dim: !own) {
+                    Chip(label: "DUMBBELL", ink: Theme.blue, value: editor.partText(f) ?? "–",
+                         look: .active(Theme.blue, Color(hex: 0x16263F)), tail: .caret)
+                    plus("+")
+                    Button { editor.clearPlates() } label: {
+                        Chip(label: "CLIP-ONS", ink: Theme.plate, value: plateText, tail: .clear)
+                    }
+                    .buttonStyle(.plain)
+                    .accessibilityLabel("Take off clip-ons")
+                }
+            }
+        case .plain:
+            single(plainTitle(ex), Theme.blue, sign(editor.text(f) ?? editor.placeholderText(f) ?? "–"),
+                   dim: editor.text(f) == nil)
         }
     }
 
-    private func segment(_ title: String, selected: Bool, fill: Color = Theme.blue, ink: Color = .white,
-                         action: @escaping () -> Void) -> some View {
-        Button(action: action) {
-            Text(title)
-                .font(.system(size: 16, weight: .semibold))
-                .monospacedDigit()
-                .lineLimit(1)
-                .minimumScaleFactor(0.7)
-                .foregroundStyle(selected ? ink : .white)
-                .frame(maxWidth: .infinity, minHeight: 36)
-                .background(RoundedRectangle(cornerRadius: 8).fill(selected ? fill : Self.keyColor))
+    private func stackTitle(_ ex: Exercise) -> String {
+        switch ex.type {
+        case .assistedBodyweight: "Assistance"
+        case .bodyweightReps: "Added weight"
+        default: "Stack"
         }
-        .buttonStyle(.plain)
+    }
+
+    private func plainTitle(_ ex: Exercise) -> String {
+        switch ex.type {
+        case .assistedBodyweight: "Assistance"
+        case .bodyweightReps: "Added weight"
+        default: ex.equipment == .none || ex.equipment == .other ? "Weight" : ex.equipment.title
+        }
+    }
+
+    /// A box with what the weight is and its total.
+    private func single(_ title: String, _ ink: Color, _ total: String, sub: String? = nil, dim: Bool) -> some View {
+        HStack(spacing: 8) {
+            Text(title).font(.system(size: 13, weight: .bold)).foregroundStyle(ink)
+            if let sub { Text(sub).font(.system(size: 13, weight: .semibold)).foregroundStyle(Theme.grey) }
+            Spacer(minLength: 0)
+            kg(total, dim: dim)
+        }
+        .padding(.horizontal, 12)
+        .frame(height: 40)
+        .background(RoundedRectangle(cornerRadius: 8).strokeBorder(Self.keyColor, lineWidth: 1.5))
+    }
+
+    /// Parts joined by +, then = the total.
+    private func parts<C: View>(_ total: String, dim: Bool, @ViewBuilder _ chips: () -> C) -> some View {
+        HStack(spacing: 5) {
+            chips()
+            Spacer(minLength: 0)
+            plus("=")
+            kg(total, dim: dim).padding(.trailing, 4)
+        }
+        .frame(height: 40)
+    }
+
+    private func plus(_ text: String) -> some View {
+        Text(text).font(.system(size: 15, weight: .semibold)).foregroundStyle(Theme.dim).fixedSize()
+    }
+
+    private func kg(_ value: String, dim: Bool) -> some View {
+        HStack(alignment: .firstTextBaseline, spacing: 4) {
+            Text(value)
+                .font(.system(size: 21, weight: .bold))
+                .foregroundStyle(dim ? Theme.grey : .white)
+            Text("kg").font(.system(size: 13, weight: .semibold)).foregroundStyle(Theme.grey)
+        }
+        .monospacedDigit()
+        .lineLimit(1)
+        .fixedSize()
     }
 
     private func rirBar(_ f: Cell) -> some View {
@@ -240,11 +372,77 @@ struct Keypad: View {
                     Text(v == 5 ? "5+" : String(v))
                         .font(.system(size: 16, weight: .semibold))
                         .foregroundStyle(current == v ? .black : .white)
-                        .frame(maxWidth: .infinity, minHeight: 36)
+                        .frame(maxWidth: .infinity, minHeight: 40)
                         .background(RoundedRectangle(cornerRadius: 8).fill(current == v ? Theme.rir : Self.keyColor))
                 }
                 .buttonStyle(.plain)
             }
+        }
+    }
+}
+
+/// One part of a weight: a small label over its value.
+private struct Chip: View {
+    enum Look { case key, active(Color, Color), locked }
+    enum Badge { case lock, toggle(Bool) }
+    enum Tail { case caret, clear }
+
+    let label: String
+    let ink: Color
+    let value: String
+    var look: Look = .key
+    var badge: Badge?
+    var tail: Tail?
+    var off = false
+
+    var body: some View {
+        VStack(alignment: .leading, spacing: 3) {
+            HStack(spacing: 4) {
+                Text(label).font(.system(size: 10, weight: .bold)).kerning(0.5).foregroundStyle(ink)
+                switch badge {
+                case .lock:
+                    Image(systemName: "lock.fill").font(.system(size: 8)).foregroundStyle(Theme.grey)
+                case .toggle(let on):
+                    Capsule()
+                        .fill(on ? Theme.green : Color(hex: 0x48484A))
+                        .frame(width: 20, height: 12)
+                        .overlay(alignment: on ? .trailing : .leading) {
+                            Circle().fill(on ? .white : Color(hex: 0xA0A3A7)).frame(width: 8, height: 8).padding(2)
+                        }
+                case nil:
+                    EmptyView()
+                }
+            }
+            HStack(spacing: tail == .caret ? 2 : 6) {
+                Text(value)
+                    .font(.system(size: 17, weight: .semibold))
+                    .monospacedDigit()
+                    .strikethrough(off)
+                    .foregroundStyle(.white)
+                switch tail {
+                case .caret: Rectangle().fill(Theme.blue).frame(width: 2, height: 17)
+                case .clear: Image(systemName: "xmark").font(.system(size: 9, weight: .bold)).foregroundStyle(Theme.grey)
+                case nil: EmptyView()
+                }
+            }
+        }
+        .lineLimit(1)
+        .fixedSize()
+        .padding(.horizontal, 10)
+        .frame(height: 40)
+        .background { background }
+        .contentShape(Rectangle())
+    }
+
+    @ViewBuilder private var background: some View {
+        let shape = RoundedRectangle(cornerRadius: 8)
+        switch look {
+        case .key:
+            shape.fill(Keypad.keyColor)
+        case .active(let edge, let fill):
+            shape.fill(fill).overlay(shape.strokeBorder(edge, lineWidth: 1.5))
+        case .locked:
+            shape.strokeBorder(Theme.control, style: StrokeStyle(lineWidth: 1.5, dash: [4, 3]))
         }
     }
 }

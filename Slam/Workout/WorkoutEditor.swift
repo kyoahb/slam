@@ -46,7 +46,7 @@ final class WorkoutEditor: Identifiable {
 
     private(set) var focus: Cell?
     private(set) var draft: String?
-    /// The keypad shows the plates on a stack machine's pin instead of its slots.
+    /// The keypad's Pin tab: the plates on a stack machine's pin instead of its slots.
     var pinPlates = false
     var picking = false
     var replacing: EntryRef?
@@ -258,9 +258,21 @@ final class WorkoutEditor: Identifiable {
         }
     }
 
-    /// What the weight cell shows and the digits type.
+    /// The digits type the slot or the dumbbell where more goes on top of it, else the total.
+    func typesPart(_ entry: UUID) -> Bool {
+        let rig = exercise(entry: entry)?.rig
+        return rig == .stack || rig == .dumbbell
+    }
+
     private func typedKg(_ s: WorkSet, _ entry: UUID) -> Double? {
-        s.shownKg(exercise(entry: entry)?.rig ?? .plain)
+        guard let kg = s.kg else { return nil }
+        return typesPart(entry) ? s.load?.base ?? kg : kg
+    }
+
+    /// The typed part as the keypad shows it: the digits while typing, else the slot or dumbbell.
+    func partText(_ c: Cell) -> String? {
+        if focus == c, let draft { return draft }
+        return load(c).map { Format.kg($0.base) }
     }
 
     /// The value as it would be typed.
@@ -275,15 +287,15 @@ final class WorkoutEditor: Identifiable {
         }
     }
 
-    /// What a cell shows: the typed text while typing, else the value; nil when empty.
+    /// What a cell shows: the typed text while typing, else the value; nil when empty. The weight is always the total.
     func text(_ c: Cell) -> String? {
-        if focus == c, let draft {
+        if focus == c, let draft, !(c.field == .kg && typesPart(c.entry)) {
             if c.field == .time { return Format.secondsFromDigits(draft).map { Format.clock($0) } ?? "" }
             return draft
         }
         guard let s = set(c) else { return nil }
         switch c.field {
-        case .kg: return typedKg(s, c.entry).map { Format.kg($0) }
+        case .kg: return s.kg.map { Format.kg($0) }
         case .reps: return s.reps.map { String($0) }
         case .repsR: return s.repsR.map { String($0) }
         case .time: return s.seconds.map { Format.clock($0) }
@@ -294,7 +306,7 @@ final class WorkoutEditor: Identifiable {
     func placeholderText(_ c: Cell) -> String? {
         guard let p = placeholder(c) else { return nil }
         switch c.field {
-        case .kg: return typedKg(p, c.entry).map { Format.kg($0) }
+        case .kg: return p.kg.map { Format.kg($0) }
         case .reps: return p.reps.map { String($0) }
         case .repsR: return p.repsR.map { String($0) }
         case .time: return p.seconds.map { Format.clock($0) }
@@ -420,6 +432,18 @@ final class WorkoutEditor: Identifiable {
         change { l, _ in
             l.plates.append(plate)
             l.plates.sort(by: >)
+        }
+    }
+
+    /// A dumbbell's clip-on: on if it is not there, else off.
+    func toggleClip(_ plate: Double) {
+        change { l, _ in
+            if let i = l.plates.firstIndex(where: { abs($0 - plate) < 0.01 }) {
+                l.plates.remove(at: i)
+            } else {
+                l.plates.append(plate)
+                l.plates.sort(by: >)
+            }
         }
     }
 

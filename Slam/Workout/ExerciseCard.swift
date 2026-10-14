@@ -120,7 +120,7 @@ struct SetTable: View {
         VStack(spacing: 0) {
             HStack(spacing: 6) {
                 Text("SET").frame(width: 40)
-                if type.hasKg { Text("KG").frame(maxWidth: .infinity) }
+                if type.hasKg { Text(type.kgSign + "KG").frame(maxWidth: .infinity) }
                 if type.hasReps {
                     RepsHeader(title: two ? "LEFT" : "REPS")
                     if two { RepsHeader(title: "RIGHT") }
@@ -203,28 +203,22 @@ struct SetRow: View {
 
     private func cell(_ field: Field) -> Cell { Cell(entry: entry.id, set: set.id, field: field) }
 
-    /// A value; the weight also shows how it is loaded (see `WeightLabel`).
+    /// A value; the weight is always the total, its parts are set in the keypad.
     private func valueCell(_ field: Field) -> some View {
         let c = cell(field)
         let focused = editor.focus == c
         let typed = editor.text(c)
         let shown = typed ?? editor.placeholderText(c) ?? "–"
         return Button { editor.select(c) } label: {
-            Group {
-                if field == .kg {
-                    WeightLabel(main: shown, load: editor.load(c), rig: exercise.rig, dim: typed == nil)
-                } else {
-                    Text(shown.isEmpty ? " " : shown)
-                        .font(.system(size: 17, weight: .semibold))
-                        .foregroundStyle(typed == nil ? Theme.dim : .white)
-                        .monospacedDigit()
-                        .lineLimit(1)
-                        .minimumScaleFactor(0.7)
-                }
-            }
-            .frame(maxWidth: .infinity, minHeight: 36)
-            .background(RoundedRectangle(cornerRadius: 8).fill(focused ? Theme.control : .clear))
-            .contentShape(Rectangle())
+            Text(shown.isEmpty ? " " : shown)
+                .font(.system(size: 17, weight: .semibold))
+                .foregroundStyle(typed == nil ? Theme.dim : .white)
+                .monospacedDigit()
+                .lineLimit(1)
+                .minimumScaleFactor(0.7)
+                .frame(maxWidth: .infinity, minHeight: 36)
+                .background(RoundedRectangle(cornerRadius: 8).fill(focused ? Theme.control : .clear))
+                .contentShape(Rectangle())
         }
         .buttonStyle(.plain)
     }

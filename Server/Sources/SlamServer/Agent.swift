@@ -261,6 +261,8 @@ struct ExerciseIn: Decodable {
     var stackRange: RangeIn?
     /// 0 removes it.
     var addOn: Double?
+    /// A stack machine's pin for plates.
+    var pin: Bool?
     var bar: Double?
     var plateSides: Int?
     /// Replaces the list; values already logged stay with settings of the same name.
@@ -362,6 +364,7 @@ struct ExerciseOut: Encodable {
     var unilateral: Bool
     var stack: [Double]?
     var addOn: Double?
+    var pin: Bool?
     var bar: Double?
     var plateSides: Int?
     var settings: [String]?
@@ -515,7 +518,7 @@ struct View {
         return ExerciseOut(id: e.id, name: e.name, type: e.type.rawValue, equipment: e.equipment.rawValue,
                            brand: e.brand.isEmpty ? nil : e.brand, primary: e.primary.rawValue,
                            secondary: e.secondary.map(\.rawValue), unilateral: e.unilateral,
-                           stack: e.stack.isEmpty ? nil : e.stack, addOn: e.addOn, bar: e.bar,
+                           stack: e.stack.isEmpty ? nil : e.stack, addOn: e.addOn, pin: e.pin ? true : nil, bar: e.bar,
                            plateSides: e.plateSides == 0 ? nil : e.plateSides,
                            settings: e.settings.isEmpty ? nil : e.settings.map { $0.name + ($0.perWorkout ? " (each workout)" : "") },
                            workouts: used.count, last: used.map(\.start).max())
@@ -655,6 +658,7 @@ struct View {
             e.stack = slots
         }
         if let v = body.addOn { e.addOn = v > 0 ? v : nil }
+        if let v = body.pin { e.pin = v }
         if let v = body.bar { e.bar = v > 0 ? v : nil }
         if let v = body.plateSides {
             guard (0...2).contains(v) else { throw HTTPError(.badRequest, message: "plate_sides is 0, 1 or 2.") }
