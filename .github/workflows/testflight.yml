@@ -14,13 +14,14 @@ jobs:
       TEAMID: ${{ secrets.TEAMID }}
       KEY_ID: ${{ secrets.FASTLANE_KEY_ID }}
       ISSUER_ID: ${{ secrets.FASTLANE_ISSUER_ID }}
-      HOMEBREW_NO_AUTO_UPDATE: 1
-      HOMEBREW_NO_INSTALL_CLEANUP: 1
     steps:
       - uses: actions/checkout@v5
 
       - name: Generate project
-        run: brew install xcodegen && xcodegen generate
+        run: |
+          curl -fsSL -o "$RUNNER_TEMP/xcodegen.zip" https://github.com/yonaskolb/XcodeGen/releases/download/2.46.0/xcodegen.zip
+          unzip -q "$RUNNER_TEMP/xcodegen.zip" -d "$RUNNER_TEMP"
+          "$RUNNER_TEMP/xcodegen/bin/xcodegen" generate
 
       - name: API key
         env:

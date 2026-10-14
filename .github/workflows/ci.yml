@@ -7,10 +7,6 @@ concurrency:
   group: ci
   cancel-in-progress: true
 
-env:
-  HOMEBREW_NO_AUTO_UPDATE: 1
-  HOMEBREW_NO_INSTALL_CLEANUP: 1
-
 jobs:
   build:
     runs-on: macos-26
@@ -34,7 +30,10 @@ jobs:
           while read -r id _; do nohup xcrun simctl boot "$id" > /dev/null 2>&1 & done < build/sims
 
       - name: Generate project
-        run: brew install xcodegen && xcodegen generate
+        run: |
+          curl -fsSL -o "$RUNNER_TEMP/xcodegen.zip" https://github.com/yonaskolb/XcodeGen/releases/download/2.46.0/xcodegen.zip
+          unzip -q "$RUNNER_TEMP/xcodegen.zip" -d "$RUNNER_TEMP"
+          "$RUNNER_TEMP/xcodegen/bin/xcodegen" generate
 
       - name: Build
         run: |
