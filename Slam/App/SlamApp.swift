@@ -17,6 +17,7 @@ struct SlamApp: App {
 
 struct RootView: View {
     @Environment(AppModel.self) private var model
+    @Environment(\.scenePhase) private var phase
 
     var body: some View {
         @Bindable var model = model
@@ -32,6 +33,14 @@ struct RootView: View {
         }
         .sheet(item: $model.routineEditor) { editor in
             RoutineEditorView(editor: editor).environment(model)
+        }
+        .overlay {
+            if model.demoLive, let editor = model.editor {
+                LivePreview(start: editor.workout.start, state: model.liveState(editor))
+            }
+        }
+        .onChange(of: phase) { _, now in
+            if now == .active { model.checkWatch() }
         }
         .task(id: model.restEnd) {
             guard let end = model.restEnd else { return }

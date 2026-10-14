@@ -221,6 +221,7 @@ final class WorkoutEditor: Identifiable {
             s.done = false
             s.doneAt = nil
             write(p, s)
+            if mode == .live { app.refreshLiveActivity() }
             return
         }
         s = s.filled(from: placeholders(workout.exercises[p.e])[p.s])
@@ -241,6 +242,8 @@ final class WorkoutEditor: Identifiable {
         }
         if mode == .live, let rest = Rest.after(p.s, in: workout.exercises[p.e].sets, settings: app.settings) {
             app.startRest(rest)
+        } else if mode == .live {
+            app.refreshLiveActivity()
         }
     }
 
@@ -428,14 +431,6 @@ final class WorkoutEditor: Identifiable {
         change { l, _ in l.plates = [] }
     }
 
-    /// A dumbbell's small plates go on and off with one tap each.
-    func toggleMicro(_ plate: Double) {
-        change { l, _ in
-            if let i = l.plates.firstIndex(where: { abs($0 - plate) < 0.01 }) { l.plates.remove(at: i) } else { l.plates.append(plate) }
-            l.plates.sort(by: >)
-        }
-    }
-
     /// Back to last time's weight.
     func clearWeight() {
         guard let c = focus, let p = pos(c.entry, c.set) else { return }
@@ -459,6 +454,10 @@ final class WorkoutEditor: Identifiable {
             workout.exercises.append(e)
         }
         changed()
+        if mode == .live {
+            app.refreshLiveActivity()
+            app.checkWatch()
+        }
     }
 
     func replace(_ entry: UUID, with ex: Exercise) {
@@ -469,6 +468,7 @@ final class WorkoutEditor: Identifiable {
         e.note = ""
         e.settings = [:]
         e.sets = e.sets.map { WorkSet(kind: $0.kind) }
+        e.watch = nil
         lastCache[ex.id] = .some(app.lastTime(ex.id, excluding: workout.id, before: mode == .past ? workout.start : nil))
         e.carrySettings(ex, last: lastCache[ex.id] ?? nil)
         workout.exercises[p.e] = e

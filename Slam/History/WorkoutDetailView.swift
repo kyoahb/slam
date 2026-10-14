@@ -127,6 +127,7 @@ struct WorkoutDetailView: View {
             .buttonStyle(.plain)
             if !e.note.isEmpty { Text(e.note).font(.subheadline) }
             if !settings.isEmpty { Text(settings).font(.subheadline).foregroundStyle(Theme.grey) }
+            if let link = e.watch { WatchLine(link: link) }
             SetGrid(entry: e, exercise: ex, records: records)
             RecordLine(records: records)
         }

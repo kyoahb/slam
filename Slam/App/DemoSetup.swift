@@ -34,12 +34,18 @@ extension AppModel {
             }
         case "plates", "dumbbell":
             showWorkout = true
-            // Set 2 of the bench (one more plate than last time), or of the lateral raise with a small plate.
+            // Set 2 of the bench (one more plate than last time), or of the lateral raise with a pair of small plates.
             let name = screen == "plates" ? "Bench Press (Barbell)" : "Lateral Raise (Dumbbell)"
             if let editor, let entry = editor.workout.exercises.first(where: { byId[$0.exerciseId]?.name == name }),
                entry.sets.count > 1 {
                 editor.select(Cell(entry: entry.id, set: entry.sets[1].id, field: .kg))
-                if screen == "plates" { editor.addPlate(2.5) } else { editor.toggleMicro(0.5) }
+                if screen == "plates" {
+                    editor.addPlate(2.5)
+                } else {
+                    editor.clearPlates()
+                    editor.addPlate(0.25)
+                    editor.addPlate(0.25)
+                }
             }
         case "record":
             showWorkout = true
@@ -69,6 +75,23 @@ extension AppModel {
             showWorkout = true
             restLength = settings.restSeconds
             restEnd = Date().addingTimeInterval(87)
+        case "live":
+            restLength = settings.restSeconds
+            restEnd = Date().addingTimeInterval(87)
+            demoLive = true
+        case "watch":
+            // The last workout with the elliptical, linked to its Watch workout; done first so it shows at the top.
+            tab = .history
+            let cardio = { (e: WorkoutExercise) in self.byId[e.exerciseId]?.watchActivities.isEmpty == false }
+            if var w = workouts.first(where: { $0.exercises.contains(where: cardio) }),
+               let i = w.exercises.firstIndex(where: cardio) {
+                let end = w.start.addingTimeInterval(33 * 60)
+                w.exercises[i].watch = WatchLink(id: UUID(), start: end.addingTimeInterval(-1930), end: end,
+                                                 meters: 6200, kcal: 412, heartRate: 141)
+                w.exercises.move(fromOffsets: [i], toOffset: 0)
+                insert(w)
+                historyPath.append(WorkoutLink(id: w.id))
+            }
         case "save":
             showWorkout = true
             editor?.saving = true

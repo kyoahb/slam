@@ -31,6 +31,8 @@ final class AppModel {
 
     var restEnd: Date?
     var restLength = 0
+    /// Screenshot mode: the lock screen and Dynamic Island drawn over the app.
+    var demoLive = false
     var stopwatchStart: Date?
     var stopwatchBanked: TimeInterval = 0
 
@@ -81,6 +83,7 @@ final class AppModel {
         let model = AppModel(store: store, library: library, demo: demo)
         if demo { model.prepareDemo(args) }
         UNUserNotificationCenter.current().delegate = NotificationDelegate.shared
+        model.refreshLiveActivity()
         return model
     }
 
@@ -154,6 +157,8 @@ final class AppModel {
         editor = WorkoutEditor(workout: w, mode: .live, app: self)
         saveActive(w)
         showWorkout = true
+        refreshLiveActivity()
+        checkWatch()
         if !demo {
             Task { _ = try? await UNUserNotificationCenter.current().requestAuthorization(options: [.alert, .sound]) }
         }
@@ -215,6 +220,7 @@ final class AppModel {
         restLength = seconds
         restEnd = Date().addingTimeInterval(TimeInterval(seconds))
         scheduleRestAlert()
+        refreshLiveActivity()
     }
 
     func adjustRest(_ delta: Int) {
@@ -227,16 +233,19 @@ final class AppModel {
         restEnd = next
         restLength = max(1, restLength + delta)
         scheduleRestAlert()
+        refreshLiveActivity()
     }
 
     func skipRest() {
         restEnd = nil
         UNUserNotificationCenter.current().removePendingNotificationRequests(withIdentifiers: ["rest"])
+        refreshLiveActivity()
     }
 
     /// Chime and buzz, unless the app was away when it ended (the notification already told you).
     func restFinished(late: Bool) {
         restEnd = nil
+        refreshLiveActivity()
         guard !late, !demo else { return }
         Sounds.play(.rest)
         Sounds.buzz()

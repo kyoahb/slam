@@ -123,6 +123,22 @@ struct WeightLabel: View {
     }
 }
 
+/// What the Apple Watch measured for a linked cardio exercise: "32:10 · 6.2 km · 412 kcal · 141 bpm".
+struct WatchLine: View {
+    let link: WatchLink
+
+    var body: some View {
+        var parts = [Format.clock(link.seconds)]
+        if let m = link.meters { parts.append(Format.km(m) + " km") }
+        if let k = link.kcal { parts.append("\(Int(k.rounded())) kcal") }
+        if let h = link.heartRate { parts.append("\(Int(h.rounded())) bpm") }
+        return Label(parts.joined(separator: " · "), systemImage: "applewatch")
+            .font(.subheadline.weight(.medium))
+            .foregroundStyle(Theme.green)
+            .monospacedDigit()
+    }
+}
+
 /// "REPS · RIR", with RIR in its colour.
 struct RepsHeader: View {
     let title: String

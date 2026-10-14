@@ -197,19 +197,19 @@ struct Keypad: View {
         }
     }
 
-    /// A dumbbell's small plates, each on or off.
+    /// A dumbbell's small plates: each tap clips one more on ("+0.25 ×2").
     private func microBar(_ f: Cell) -> some View {
         let on = editor.load(f)?.plates ?? []
         return HStack(spacing: 6) {
-            Text("Plates")
-                .font(.system(size: 13, weight: .bold))
-                .foregroundStyle(Theme.plate)
-                .frame(width: 56)
             ForEach(Plates.micro, id: \.self) { p in
-                segment("+" + Format.kg(p), selected: on.contains { abs($0 - p) < 0.01 }, fill: Theme.plate, ink: .black) {
-                    editor.toggleMicro(p)
+                let n = on.filter { abs($0 - p) < 0.01 }.count
+                segment("+" + Format.kg(p) + (n > 1 ? " ×\(n)" : ""), selected: n > 0, fill: Theme.plate, ink: .black) {
+                    editor.addPlate(p)
                 }
             }
+            segment("Clear", selected: false) { editor.clearPlates() }
+                .opacity(on.isEmpty ? 0.4 : 1)
+                .disabled(on.isEmpty)
         }
     }
 

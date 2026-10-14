@@ -30,6 +30,7 @@ struct ExerciseCard: View {
                     Text(long).font(.subheadline).foregroundStyle(.white)
                 }
                 settingsLine(ex)
+                if let link = entry.watch { WatchLine(link: link) }
                 noteField
             }
             .padding(.horizontal, 16)

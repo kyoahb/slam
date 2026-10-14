@@ -83,8 +83,8 @@ public struct Load: Codable, Hashable, Sendable {
 public enum Plates {
     /// Plates for bars, plate-loaded machines and the gym pin, heaviest first.
     public static let standard: [Double] = [25, 20, 15, 10, 5, 2.5, 1.25]
-    /// Small plates that clip onto a dumbbell.
-    public static let micro: [Double] = [0.5, 1, 1.25, 2.5]
+    /// Small plates that clip onto a dumbbell, often in pairs.
+    public static let micro: [Double] = [0.25, 0.5, 1, 1.25]
 
     /// "20 20 20 20 5" as "4×20 5": three or more of a plate in a row are counted.
     public static func short(_ plates: [Double]) -> String {

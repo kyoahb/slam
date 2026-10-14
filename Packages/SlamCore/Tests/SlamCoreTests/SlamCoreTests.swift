@@ -250,3 +250,33 @@ final class DemoTests: XCTestCase {
         XCTAssertEqual(updated.exercises[1].note, "seatbelt under legs")
     }
 }
+
+final class WatchTests: XCTestCase {
+    func testActivitiesFromName() {
+        XCTAssertEqual(Exercise(name: "Precor Elliptical", type: .distanceDuration, equipment: .cardio).watchActivities, [.elliptical])
+        XCTAssertEqual(Exercise(name: "Treadmill", type: .distanceDuration, equipment: .cardio).watchActivities, [.walking, .running])
+        XCTAssertEqual(Exercise(name: "Farmers Walk", type: .weightDuration, equipment: .dumbbell).watchActivities, [])
+        XCTAssertEqual(Exercise(name: "Seated Row", type: .weightReps).watchActivities, [])
+    }
+
+    func testLinkFillsFirstCardioSetOnce() {
+        let row = Exercise(name: "Seated Row")
+        let bike = Exercise(name: "Bike", type: .distanceDuration, equipment: .cardio)
+        let byId = [row.id: row, bike.id: bike]
+        var w = Workout(exercises: [WorkoutExercise(exerciseId: row.id, sets: [WorkSet()]),
+                                    WorkoutExercise(exerciseId: bike.id, sets: [WorkSet(seconds: 600)])])
+        let start = Date(timeIntervalSince1970: 1000)
+        let link = WatchLink(id: UUID(), start: start, end: start.addingTimeInterval(1200), meters: 5000, kcal: 200, heartRate: 140)
+        XCTAssertFalse(w.link(link, as: .elliptical, exercises: byId))
+        XCTAssertTrue(w.link(link, as: .cycling, exercises: byId))
+        XCTAssertFalse(w.link(link, as: .cycling, exercises: byId))
+        let s = w.exercises[1].sets[0]
+        XCTAssertEqual(s.seconds, 600)
+        XCTAssertEqual(s.meters, 5000)
+        XCTAssertTrue(s.done)
+        XCTAssertEqual(w.exercises[1].watch, link)
+        XCTAssertNil(w.exercises[0].watch)
+        let back = try! JSONDecoder().decode(Workout.self, from: JSONEncoder().encode(w))
+        XCTAssertEqual(back.exercises[1].watch, link)
+    }
+}

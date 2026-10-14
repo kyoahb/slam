@@ -262,15 +262,18 @@ public struct WorkoutExercise: Codable, Hashable, Identifiable, Sendable {
     public var settings: [String: String]
     public var sets: [WorkSet]
     public var supersetId: Int?
+    /// The Apple Watch workout this cardio was done as.
+    public var watch: WatchLink?
 
     public init(id: UUID = UUID(), exerciseId: UUID, note: String = "", settings: [String: String] = [:],
-                sets: [WorkSet] = [], supersetId: Int? = nil) {
+                sets: [WorkSet] = [], supersetId: Int? = nil, watch: WatchLink? = nil) {
         self.id = id
         self.exerciseId = exerciseId
         self.note = note
         self.settings = settings
         self.sets = sets
         self.supersetId = supersetId
+        self.watch = watch
     }
 
     public init(from decoder: Decoder) throws {
@@ -281,6 +284,7 @@ public struct WorkoutExercise: Codable, Hashable, Identifiable, Sendable {
         settings = try c.value(.settings, [:])
         sets = try c.value(.sets, [])
         supersetId = try c.decodeIfPresent(Int.self, forKey: .supersetId)
+        watch = try c.decodeIfPresent(WatchLink.self, forKey: .watch)
     }
 
     public subscript(setting id: UUID) -> String {
