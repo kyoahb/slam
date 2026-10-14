@@ -202,27 +202,25 @@ struct SetRow: View {
 
     private func cell(_ field: Field) -> Cell { Cell(entry: entry.id, set: set.id, field: field) }
 
-    /// A value; the weight also shows its add-on ("109 +2") when it is switched on.
+    /// A value; the weight also shows how it is loaded (see `WeightLabel`).
     private func valueCell(_ field: Field) -> some View {
         let c = cell(field)
         let focused = editor.focus == c
         let typed = editor.text(c)
         let shown = typed ?? editor.placeholderText(c) ?? "–"
-        let add = field == .kg && exercise.addOn != nil ? editor.addOn(c) : nil
         return Button { editor.select(c) } label: {
-            HStack(alignment: .firstTextBaseline, spacing: 3) {
-                Text(shown.isEmpty ? " " : shown)
-                    .font(.system(size: 17, weight: .semibold))
-                    .foregroundStyle(typed == nil ? Theme.dim : .white)
-                if let add {
-                    Text("+" + Format.kg(add))
-                        .font(.system(size: 12, weight: .bold))
-                        .foregroundStyle(typed == nil ? Theme.blue.opacity(0.5) : Theme.blue)
+            Group {
+                if field == .kg {
+                    WeightLabel(main: shown, load: editor.load(c), rig: exercise.rig, dim: typed == nil)
+                } else {
+                    Text(shown.isEmpty ? " " : shown)
+                        .font(.system(size: 17, weight: .semibold))
+                        .foregroundStyle(typed == nil ? Theme.dim : .white)
+                        .monospacedDigit()
+                        .lineLimit(1)
+                        .minimumScaleFactor(0.7)
                 }
             }
-            .monospacedDigit()
-            .lineLimit(1)
-            .minimumScaleFactor(0.7)
             .frame(maxWidth: .infinity, minHeight: 36)
             .background(RoundedRectangle(cornerRadius: 8).fill(focused ? Theme.control : .clear))
             .contentShape(Rectangle())

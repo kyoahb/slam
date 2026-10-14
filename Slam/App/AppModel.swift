@@ -68,11 +68,15 @@ final class AppModel {
         var library = (try? store.load()) ?? Library()
         if demo {
             // -fresh: a new install with nothing logged, to see the empty screens.
-            library = args.contains("-fresh") ? Library(exercises: Catalog.starter()) : Demo.library()
+            library = args.contains("-fresh") ? Library() : Demo.library()
             try? store.save(library)
-        } else if store.isNew {
-            library.exercises = Catalog.starter()
-            try? store.saveExercises(library.exercises)
+        } else {
+            // Once: the starter exercises earlier builds added, unless used or changed.
+            let marker = root.appendingPathComponent("starter-removed")
+            if !FileManager.default.fileExists(atPath: marker.path) {
+                if library.removeUnusedStarter() > 0 { try? store.saveExercises(library.exercises) }
+                FileManager.default.createFile(atPath: marker.path, contents: nil)
+            }
         }
         let model = AppModel(store: store, library: library, demo: demo)
         if demo { model.prepareDemo(args) }

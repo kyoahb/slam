@@ -112,9 +112,6 @@ public struct FileStore: Sendable {
         }
     }
 
-    /// Nothing saved here yet.
-    public var isNew: Bool { !FileManager.default.fileExists(atPath: root.appendingPathComponent("exercises.json").path) }
-
     /// A file that exists but cannot be read is copied aside first, so the next save cannot lose it.
     func read<T: Decodable>(_ type: T.Type, _ name: String) -> T? {
         let url = root.appendingPathComponent(name)

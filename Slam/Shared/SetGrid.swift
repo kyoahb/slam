@@ -34,7 +34,11 @@ struct SetGrid: View {
                         .font(.body.weight(.semibold))
                         .foregroundStyle(Theme.kindColor(s.kind))
                         .frame(width: 40)
-                    if type.hasKg { value(s.base.map { Format.kg($0) }, add: s.addOn) }
+                    if type.hasKg {
+                        WeightLabel(main: s.shownKg(exercise.rig).map { Format.kg($0) } ?? "–", load: s.load,
+                                    rig: exercise.rig, size: 16)
+                            .frame(maxWidth: .infinity)
+                    }
                     if type.hasReps {
                         reps(s.reps, s.rir, warm: s.kind == .warmup, tone: two ? Theme.left : .clear)
                         if two { reps(s.repsR, s.rirR, warm: s.kind == .warmup, tone: Theme.right) }
@@ -54,14 +58,10 @@ struct SetGrid: View {
         }
     }
 
-    private func value(_ text: String?, add: Double? = nil) -> some View {
-        HStack(alignment: .firstTextBaseline, spacing: 3) {
-            Text(text ?? "–").font(.system(size: 16, weight: .semibold))
-            if let add {
-                Text("+" + Format.kg(add)).font(.system(size: 12, weight: .bold)).foregroundStyle(Theme.blue)
-            }
-        }
-        .monospacedDigit()
+    private func value(_ text: String?) -> some View {
+        Text(text ?? "–")
+            .font(.system(size: 16, weight: .semibold))
+            .monospacedDigit()
         .lineLimit(1)
         .minimumScaleFactor(0.7)
         .frame(maxWidth: .infinity)
@@ -71,6 +71,55 @@ struct SetGrid: View {
         RepsSplit(reps: reps.map { String($0) } ?? "–", rir: warm ? nil : .some(rir), size: 16)
             .frame(maxWidth: .infinity, minHeight: 34)
             .background(RoundedRectangle(cornerRadius: 8).fill(tone))
+    }
+}
+
+/// A weight the way it was loaded: a slot or dumbbell with what went on top ("109 +2 +5"),
+/// or a total with its plates under it ("80" over "20 10 a side").
+struct WeightLabel: View {
+    let main: String
+    let load: Load?
+    let rig: Rig
+    var dim = false
+    var size: CGFloat = 17
+
+    var body: some View {
+        Group {
+            switch rig {
+            case .stack, .dumbbell:
+                HStack(alignment: .firstTextBaseline, spacing: 3) {
+                    number
+                    if let a = load?.addOn, a > 0 { badge("+" + Format.kg(a), Theme.blue) }
+                    if let l = load, !l.plates.isEmpty { badge("+" + Format.kg(l.plateWeight), Theme.plate) }
+                }
+            case .barbell, .plateLoaded:
+                VStack(spacing: 0) {
+                    number
+                    if let parts = load?.summary(rig) {
+                        Text(parts)
+                            .font(.system(size: 10, weight: .semibold))
+                            .foregroundStyle(Theme.plate.opacity(dim ? 0.5 : 1))
+                    }
+                }
+            case .plain:
+                number
+            }
+        }
+        .monospacedDigit()
+        .lineLimit(1)
+        .minimumScaleFactor(0.7)
+    }
+
+    private var number: some View {
+        Text(main.isEmpty ? " " : main)
+            .font(.system(size: size, weight: .semibold))
+            .foregroundStyle(dim ? Theme.dim : .white)
+    }
+
+    private func badge(_ text: String, _ color: Color) -> some View {
+        Text(text)
+            .font(.system(size: size - 5, weight: .bold))
+            .foregroundStyle(color.opacity(dim ? 0.5 : 1))
     }
 }
 

@@ -17,6 +17,7 @@ enum Theme {
     static let doneRow = Color(hex: 0x1D2F17)
     static let rir = Color(hex: 0x3FC7D9)
     static let medal = Color(hex: 0xF0D044)
+    static let plate = Color(hex: 0xB48CF2)
     static let red = Color(hex: 0xEB4D3D)
     static let left = Color(hex: 0x3D8AF7).opacity(0.10)
     static let right = Color(hex: 0xE4AC38).opacity(0.09)

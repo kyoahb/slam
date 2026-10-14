@@ -1,7 +1,8 @@
 import SwiftUI
 import SlamCore
 
-/// Digits, or the machine's stack slots for its weight. RIR sits on top for reps, the add-on switch for weight.
+/// Digits, or what the equipment needs for its weight: a stack's slots and add-on, plates on a bar, the pin or a dumbbell.
+/// RIR sits on top for reps.
 struct Keypad: View {
     @Bindable var editor: WorkoutEditor
 
@@ -10,20 +11,28 @@ struct Keypad: View {
     var body: some View {
         let f = editor.focus
         let ex = f.flatMap { editor.exercise(entry: $0.entry) }
+        let rig = f?.field == .kg ? ex?.rig : nil
         VStack(spacing: 6) {
             if let f, f.field == .reps || f.field == .repsR, editor.set(f)?.kind != .warmup {
                 rirBar(f)
-            } else if let f, f.field == .kg, let amount = ex?.addOn {
+            } else if let f, rig == .stack, let amount = ex?.addOn {
                 addOnBar(f, amount)
+            } else if let f, rig == .dumbbell {
+                microBar(f)
             }
             HStack(spacing: 6) {
-                if let f, f.field == .kg, let stack = ex?.stack, !stack.isEmpty {
-                    slots(f, stack)
+                if let f, let ex, let rig {
+                    weight(f, ex, rig)
                 } else {
                     digits
                 }
                 VStack(spacing: 6) {
                     key(Image(systemName: "keyboard.chevron.compact.down")) { editor.select(nil) }
+                    if rig == .stack, let ex {
+                        key(Text(editor.pinPlates ? (ex.stack.isEmpty ? "123" : "Stack") : "Pin").font(.system(size: 17, weight: .semibold))) {
+                            editor.pinPlates.toggle()
+                        }
+                    }
                     Button { editor.next() } label: {
                         Text("Next")
                             .font(.system(size: 18, weight: .semibold))
@@ -41,6 +50,20 @@ struct Keypad: View {
         .padding(.top, 6)
         .padding(.bottom, 4)
         .background(Theme.keypad.ignoresSafeArea(edges: .bottom))
+    }
+
+    @ViewBuilder
+    private func weight(_ f: Cell, _ ex: Exercise, _ rig: Rig) -> some View {
+        switch rig {
+        case .barbell, .plateLoaded:
+            plates(f, title: ex.sides > 1 ? "Each side" : "Plates")
+        case .stack where editor.pinPlates:
+            plates(f, title: "Pin")
+        case .stack where !ex.stack.isEmpty:
+            slots(f, ex.stack)
+        default:
+            digits
+        }
     }
 
     private var digits: some View {
@@ -76,10 +99,10 @@ struct Keypad: View {
         .buttonStyle(.plain)
     }
 
-    /// The stack's slots: the picked one filled, last time's outlined.
+    /// The stack's slots: the picked one filled, last time's outlined. Tapping the picked one clears it.
     private func slots(_ f: Cell, _ stack: [Double]) -> some View {
-        let own = editor.set(f)?.base
-        let last = own == nil ? editor.placeholder(f)?.base : nil
+        let own = editor.set(f)?.kg != nil ? editor.load(f)?.base : nil
+        let last = own == nil ? editor.load(f)?.base : nil
         func same(_ a: Double?, _ b: Double) -> Bool { a.map { abs($0 - b) < 0.01 } ?? false }
         return ScrollViewReader { proxy in
             ScrollView(showsIndicators: false) {
@@ -103,7 +126,7 @@ struct Keypad: View {
             }
             .frame(maxWidth: .infinity)
             .onAppear { scroll(proxy, stack, to: own ?? last) }
-            .onChange(of: f) { scroll(proxy, stack, to: editor.set(f)?.base ?? editor.placeholder(f)?.base) }
+            .onChange(of: f) { scroll(proxy, stack, to: editor.load(f)?.base) }
         }
     }
 
@@ -112,8 +135,58 @@ struct Keypad: View {
         proxy.scrollTo(slot, anchor: .center)
     }
 
+    /// What is loaded (tap one to take it off), then a key per plate to put one on.
+    private func plates(_ f: Cell, title: String) -> some View {
+        let list = editor.load(f)?.plates ?? []
+        let own = editor.set(f)?.kg != nil
+        let sizes = Plates.standard
+        return VStack(spacing: 6) {
+            HStack(spacing: 8) {
+                Text(title)
+                    .font(.system(size: 13, weight: .bold))
+                    .foregroundStyle(Theme.plate)
+                    .fixedSize()
+                ScrollView(.horizontal, showsIndicators: false) {
+                    HStack(spacing: 6) {
+                        if list.isEmpty {
+                            Text("None").font(.system(size: 16, weight: .semibold)).foregroundStyle(Theme.dim)
+                        }
+                        ForEach(Array(list.enumerated()), id: \.offset) { i, p in
+                            Button { editor.removePlate(at: i) } label: {
+                                Text(Format.kg(p))
+                                    .font(.system(size: 16, weight: .semibold))
+                                    .monospacedDigit()
+                                    .foregroundStyle(own ? .white : Theme.grey)
+                                    .padding(.horizontal, 11)
+                                    .frame(height: 32)
+                                    .background(Capsule().fill(Theme.control))
+                            }
+                            .buttonStyle(.plain)
+                        }
+                    }
+                }
+            }
+            .padding(.horizontal, 10)
+            .frame(maxWidth: .infinity, minHeight: 46, maxHeight: 46, alignment: .leading)
+            .background(RoundedRectangle(cornerRadius: 8).strokeBorder(Self.keyColor, lineWidth: 1.5))
+            ForEach([Array(sizes.prefix(4)), Array(sizes.dropFirst(4))], id: \.self) { line in
+                HStack(spacing: 6) {
+                    ForEach(line, id: \.self) { p in
+                        key(Text("+" + Format.kg(p)).font(.system(size: 19, weight: .medium)).monospacedDigit()) {
+                            editor.addPlate(p)
+                        }
+                    }
+                    if line.count < 4 {
+                        key(Text("Clear").font(.system(size: 17, weight: .semibold))) { editor.clearPlates() }
+                            .disabled(list.isEmpty)
+                    }
+                }
+            }
+        }
+    }
+
     private func addOnBar(_ f: Cell, _ amount: Double) -> some View {
-        let on = editor.addOn(f) != nil
+        let on = (editor.load(f)?.addOn ?? 0) > 0
         return HStack(spacing: 6) {
             Text("Add-on")
                 .font(.system(size: 13, weight: .bold))
@@ -124,14 +197,33 @@ struct Keypad: View {
         }
     }
 
-    private func segment(_ title: String, selected: Bool, action: @escaping () -> Void) -> some View {
+    /// A dumbbell's small plates, each on or off.
+    private func microBar(_ f: Cell) -> some View {
+        let on = editor.load(f)?.plates ?? []
+        return HStack(spacing: 6) {
+            Text("Plates")
+                .font(.system(size: 13, weight: .bold))
+                .foregroundStyle(Theme.plate)
+                .frame(width: 56)
+            ForEach(Plates.micro, id: \.self) { p in
+                segment("+" + Format.kg(p), selected: on.contains { abs($0 - p) < 0.01 }, fill: Theme.plate, ink: .black) {
+                    editor.toggleMicro(p)
+                }
+            }
+        }
+    }
+
+    private func segment(_ title: String, selected: Bool, fill: Color = Theme.blue, ink: Color = .white,
+                         action: @escaping () -> Void) -> some View {
         Button(action: action) {
             Text(title)
                 .font(.system(size: 16, weight: .semibold))
                 .monospacedDigit()
-                .foregroundStyle(.white)
+                .lineLimit(1)
+                .minimumScaleFactor(0.7)
+                .foregroundStyle(selected ? ink : .white)
                 .frame(maxWidth: .infinity, minHeight: 36)
-                .background(RoundedRectangle(cornerRadius: 8).fill(selected ? Theme.blue : Self.keyColor))
+                .background(RoundedRectangle(cornerRadius: 8).fill(selected ? fill : Self.keyColor))
         }
         .buttonStyle(.plain)
     }

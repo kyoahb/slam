@@ -9,16 +9,75 @@ final class StackTests: XCTestCase {
         XCTAssertEqual(Exercise.slots(from: 4, step: 7, to: 109).last, 109)
     }
 
-    func testFilledKeepsAddOnWithItsSlot() {
-        let prev = WorkSet(kg: 92, reps: 8, addOn: 2)
-        XCTAssertEqual(prev.base, 90)
+    func testFilledTakesLastTimesParts() {
+        let prev = WorkSet(kg: 97, reps: 8, load: Load(base: 90, addOn: 2, plates: [5]))
         let fresh = WorkSet().filled(from: prev)
-        XCTAssertEqual(fresh.kg, 92)
-        XCTAssertEqual(fresh.addOn, 2)
-        // Add-on switched on before a slot was picked, last time without it.
-        let on = WorkSet(addOn: 2).filled(from: WorkSet(kg: 90, reps: 8))
-        XCTAssertEqual(on.kg, 92)
-        XCTAssertEqual(on.addOn, 2)
+        XCTAssertEqual(fresh.kg, 97)
+        XCTAssertEqual(fresh.load, prev.load)
+    }
+}
+
+final class LoadTests: XCTestCase {
+    func testRigFollowsEquipment() {
+        XCTAssertEqual(Exercise(name: "Leg Extension").rig, .stack)
+        XCTAssertEqual(Exercise(name: "Cable Row", equipment: .cable).rig, .stack)
+        XCTAssertEqual(Exercise(name: "Leg Press", plateSides: 2).rig, .plateLoaded)
+        XCTAssertEqual(Exercise(name: "Squat", equipment: .barbell).rig, .barbell)
+        XCTAssertEqual(Exercise(name: "Curl", equipment: .dumbbell).rig, .dumbbell)
+        XCTAssertEqual(Exercise(name: "Kettlebell Swing", equipment: .kettlebell).rig, .plain)
+        XCTAssertEqual(Exercise(name: "Pull Up", type: .repsOnly).rig, .plain)
+        XCTAssertEqual(Exercise(name: "Cable Row", equipment: .cable, plateSides: 2).rig, .stack)
+    }
+
+    func testBarWeightAndSides() {
+        let squat = Exercise(name: "Squat", equipment: .barbell)
+        XCTAssertEqual(squat.barWeight, 20)
+        XCTAssertEqual(squat.sides, 2)
+        XCTAssertEqual(squat.emptyLoad, Load(base: 20, sides: 2))
+        XCTAssertEqual(Exercise(name: "EZ Curl", equipment: .barbell, bar: 10).barWeight, 10)
+        XCTAssertEqual(Exercise(name: "T Bar", plateSides: 1).emptyLoad, Load(base: 0, sides: 1))
+    }
+
+    func testTotalsAndSummaries() {
+        let pin = Load(base: 109, addOn: 2, plates: [5, 2.5])
+        XCTAssertEqual(pin.total, 118.5)
+        XCTAssertEqual(pin.summary(.stack), "109 +2 pin 5 2.5")
+        XCTAssertEqual(Load(base: 109).summary(.stack), nil)
+        XCTAssertEqual(Load(base: 109, addOn: 2).summary(.stack), "109 +2")
+        let bar = Load(base: 20, plates: [20, 10], sides: 2)
+        XCTAssertEqual(bar.total, 80)
+        XCTAssertEqual(bar.summary(.barbell), "20 10 a side")
+        XCTAssertEqual(Load(base: 0, plates: [20, 20], sides: 1).summary(.plateLoaded), "20 20")
+        XCTAssertEqual(Load(base: 22.5, plates: [1]).summary(.dumbbell), "22.5 +1")
+        XCTAssertNil(Load(base: 22.5).summary(.dumbbell))
+    }
+
+    func testGuessMakesTheTotalFromPlates() {
+        let squat = Exercise(name: "Squat", equipment: .barbell)
+        XCTAssertEqual(Load.guess(100, squat), Load(base: 20, plates: [20, 20], sides: 2))
+        XCTAssertEqual(Load.guess(62.5, squat).plates, [20, 1.25])
+        // What plates cannot make stays in the base: the total never changes.
+        XCTAssertEqual(Load.guess(61, squat).total, 61)
+        XCTAssertEqual(Load.guess(15, squat), Load(base: 15, sides: 2))
+        XCTAssertEqual(Plates.make(37.5), [20, 15, 2.5])
+    }
+
+    func testOldAddOnLoads() throws {
+        let json = #"{"id":"7C9E6679-7425-40DE-944B-E07FC1F90AE7","kg":111,"reps":8,"addOn":2,"done":true}"#
+        let set = try FileStore.decoder.decode(WorkSet.self, from: Data(json.utf8))
+        XCTAssertEqual(set.load, Load(base: 109, addOn: 2))
+        let again = try FileStore.decoder.decode(WorkSet.self, from: FileStore.encoder.encode(set))
+        XCTAssertEqual(again.load, set.load)
+    }
+
+    func testStarterExercisesGoUnlessUsedOrChanged() {
+        var lib = Library(exercises: [Exercise(name: "Squat (Barbell)", equipment: .barbell),
+                                      Exercise(name: "Leg Press (Machine)"),
+                                      Exercise(name: "Leg Extension (Machine)", stack: [5, 10]),
+                                      Exercise(name: "Precor Leg Extension")])
+        lib.workouts = [Workout(exercises: [WorkoutExercise(exerciseId: lib.exercises[1].id, sets: [WorkSet(kg: 50, reps: 8)])])]
+        XCTAssertEqual(lib.removeUnusedStarter(), 1)
+        XCTAssertEqual(lib.exercises.map(\.name), ["Leg Press (Machine)", "Leg Extension (Machine)", "Precor Leg Extension"])
     }
 }
 
@@ -37,10 +96,10 @@ final class PreviousTests: XCTestCase {
     }
 
     func testFilledTakesOnlyMissingValues() {
-        let prev = WorkSet(kg: 102, reps: 8, rir: 2, addOn: 2)
+        let prev = WorkSet(kg: 102, reps: 8, rir: 2, load: Load(base: 100, addOn: 2))
         let typed = WorkSet(kg: 102.5).filled(from: prev)
         XCTAssertEqual(typed.kg, 102.5)
-        XCTAssertNil(typed.addOn)
+        XCTAssertNil(typed.load)
         XCTAssertEqual(typed.reps, 8)
         XCTAssertEqual(typed.rir, 2)
         let warm = WorkSet(kind: .warmup).filled(from: prev)
@@ -147,7 +206,7 @@ final class StoreTests: XCTestCase {
         XCTAssertEqual(back.workouts.first?.id, lib.workouts.first?.id)
         XCTAssertEqual(back.routines.map(\.name), ["FB A", "FB B", "FB C", "FB D"])
         XCTAssertEqual(back.active?.exercises.first?.sets[1].kg, 111)
-        XCTAssertEqual(back.active?.exercises.first?.sets[1].addOn, 2)
+        XCTAssertEqual(back.active?.exercises.first?.sets[1].load, Load(base: 109, addOn: 2))
         XCTAssertEqual(back.exercises.first?.stack.count, 16)
 
         // A set written by an older version with fewer keys (and the old plate breakdown).

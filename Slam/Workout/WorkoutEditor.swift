@@ -46,6 +46,8 @@ final class WorkoutEditor: Identifiable {
 
     private(set) var focus: Cell?
     private(set) var draft: String?
+    /// The keypad shows the plates on a stack machine's pin instead of its slots.
+    var pinPlates = false
     var picking = false
     var replacing: EntryRef?
     var reordering = false
@@ -145,11 +147,18 @@ final class WorkoutEditor: Identifiable {
         return f
     }
 
-    /// The add-on in effect for a set: its own once it has a weight or the add-on was switched, else last time's.
-    func addOn(_ c: Cell) -> Double? {
+    /// A set's weight parts: its own once it has a weight, else last time's.
+    func load(_ c: Cell) -> Load? {
         guard let s = set(c) else { return nil }
-        if s.kg != nil || s.addOn != nil { return s.addOn }
-        return placeholder(c)?.addOn
+        if s.kg != nil { return parts(s, c.entry) }
+        return placeholder(c).flatMap { parts($0, c.entry) }
+    }
+
+    /// The parts of a set's weight; a bare total (typed, or from Hevy) is read as plates where plates go.
+    func parts(_ s: WorkSet, _ entry: UUID) -> Load? {
+        guard let kg = s.kg else { return nil }
+        if let l = s.load { return l }
+        return exercise(entry: entry).map { Load.guess(kg, $0) } ?? Load(base: kg)
     }
 
     /// Before last time's records, what this workout has to beat.
@@ -238,6 +247,7 @@ final class WorkoutEditor: Identifiable {
     // MARK: Keypad
 
     func select(_ cell: Cell?) {
+        if cell?.set != focus?.set { pinPlates = false }
         focus = cell
         draft = nil
         if cell != nil {
@@ -245,11 +255,16 @@ final class WorkoutEditor: Identifiable {
         }
     }
 
+    /// What the weight cell shows and the digits type.
+    private func typedKg(_ s: WorkSet, _ entry: UUID) -> Double? {
+        s.shownKg(exercise(entry: entry)?.rig ?? .plain)
+    }
+
     /// The value as it would be typed.
     func raw(_ c: Cell) -> String {
         guard let s = set(c) else { return "" }
         switch c.field {
-        case .kg: return s.base.map { Format.kg($0) } ?? ""
+        case .kg: return typedKg(s, c.entry).map { Format.kg($0) } ?? ""
         case .reps: return s.reps.map { String($0) } ?? ""
         case .repsR: return s.repsR.map { String($0) } ?? ""
         case .time: return s.seconds.map { Format.digits(fromSeconds: $0) } ?? ""
@@ -265,7 +280,7 @@ final class WorkoutEditor: Identifiable {
         }
         guard let s = set(c) else { return nil }
         switch c.field {
-        case .kg: return s.base.map { Format.kg($0) }
+        case .kg: return typedKg(s, c.entry).map { Format.kg($0) }
         case .reps: return s.reps.map { String($0) }
         case .repsR: return s.repsR.map { String($0) }
         case .time: return s.seconds.map { Format.clock($0) }
@@ -276,7 +291,7 @@ final class WorkoutEditor: Identifiable {
     func placeholderText(_ c: Cell) -> String? {
         guard let p = placeholder(c) else { return nil }
         switch c.field {
-        case .kg: return p.base.map { Format.kg($0) }
+        case .kg: return typedKg(p, c.entry).map { Format.kg($0) }
         case .reps: return p.reps.map { String($0) }
         case .repsR: return p.repsR.map { String($0) }
         case .time: return p.seconds.map { Format.clock($0) }
@@ -318,9 +333,16 @@ final class WorkoutEditor: Identifiable {
         let number = Double(text)
         switch c.field {
         case .kg:
-            let add = addOn(c)
-            s.kg = number.map { $0 + (add ?? 0) }
-            s.addOn = number == nil ? nil : add
+            // On a stack or a dumbbell the digits set the slot or dumbbell; the add-on and plates stay.
+            if let number, let ex = exercise(entry: c.entry), ex.rig == .stack || ex.rig == .dumbbell {
+                var l = seed(c, ex)
+                l.base = number
+                s.load = l
+                s.kg = l.total
+            } else {
+                s.kg = number
+                s.load = nil
+            }
         case .reps: s.reps = Int(text)
         case .repsR: s.repsR = Int(text)
         case .time: s.seconds = Format.secondsFromDigits(text)
@@ -355,25 +377,71 @@ final class WorkoutEditor: Identifiable {
         write(p, s)
     }
 
-    // MARK: Stack and add-on
+    // MARK: Weight parts
+    // Each control changes one part; the rest stay as they were, or as last time when nothing is set yet.
 
-    /// Picks a stack slot; the add-on stays as it was.
-    func pickSlot(_ slot: Double) {
-        guard let c = focus, let p = pos(c.entry, c.set) else { return }
+    /// What a change starts from: the set's parts, else last time's, else the bare bar or an empty stack.
+    private func seed(_ c: Cell, _ ex: Exercise) -> Load {
+        var l = load(c) ?? ex.emptyLoad
+        l.sides = ex.sides
+        return l
+    }
+
+    private func change(_ edit: (inout Load, Exercise) -> Void) {
+        guard let c = focus, let p = pos(c.entry, c.set), let ex = exercise(entry: c.entry) else { return }
         var s = workout.exercises[p.e].sets[p.s]
-        let add = addOn(c)
-        s.kg = slot + (add ?? 0)
-        s.addOn = add
+        var l = seed(c, ex)
+        edit(&l, ex)
+        s.load = l
+        s.kg = max(0, l.total)
         draft = nil
         write(p, s)
     }
 
+    /// Picks a stack slot. Picking the set's own slot again clears its weight.
+    func pickSlot(_ slot: Double) {
+        guard let c = focus, let p = pos(c.entry, c.set) else { return }
+        let s = workout.exercises[p.e].sets[p.s]
+        if s.kg != nil, let own = s.load?.base, abs(own - slot) < 0.01 {
+            clearWeight()
+            return
+        }
+        change { l, _ in l.base = slot }
+    }
+
     func toggleAddOn() {
-        guard let c = focus, let p = pos(c.entry, c.set), let amount = exercise(entry: c.entry)?.addOn else { return }
+        change { l, ex in l.addOn = l.addOn > 0 ? 0 : (ex.addOn ?? 0) }
+    }
+
+    func addPlate(_ plate: Double) {
+        change { l, _ in
+            l.plates.append(plate)
+            l.plates.sort(by: >)
+        }
+    }
+
+    func removePlate(at index: Int) {
+        change { l, _ in if l.plates.indices.contains(index) { l.plates.remove(at: index) } }
+    }
+
+    func clearPlates() {
+        change { l, _ in l.plates = [] }
+    }
+
+    /// A dumbbell's small plates go on and off with one tap each.
+    func toggleMicro(_ plate: Double) {
+        change { l, _ in
+            if let i = l.plates.firstIndex(where: { abs($0 - plate) < 0.01 }) { l.plates.remove(at: i) } else { l.plates.append(plate) }
+            l.plates.sort(by: >)
+        }
+    }
+
+    /// Back to last time's weight.
+    func clearWeight() {
+        guard let c = focus, let p = pos(c.entry, c.set) else { return }
         var s = workout.exercises[p.e].sets[p.s]
-        let base = s.base ?? (s.addOn == nil ? placeholder(c)?.base : nil)
-        s.addOn = addOn(c) == nil ? amount : nil
-        s.kg = base.map { $0 + (s.addOn ?? 0) }
+        s.kg = nil
+        s.load = nil
         draft = nil
         write(p, s)
     }

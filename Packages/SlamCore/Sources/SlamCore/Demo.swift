@@ -33,14 +33,15 @@ public enum Demo {
                             stack: Exercise.slots(from: 10, step: 5, to: 150), brand: "Precor")
         let crunch = Exercise(name: "Cable Crunch", equipment: .cable, primary: .abdominals,
                               stack: Exercise.slots(from: 5, step: 5, to: 80))
-        let row = Exercise(name: "Precor T Bar Row - Row", primary: .upperBack, brand: "Precor")
-        let shrug = Exercise(name: "Precor T Bar Row - Kelso Shrug", primary: .traps, brand: "Precor")
+        let row = Exercise(name: "Precor T Bar Row - Row", primary: .upperBack, plateSides: 1, brand: "Precor")
+        let shrug = Exercise(name: "Precor T Bar Row - Kelso Shrug", primary: .traps, plateSides: 1, brand: "Precor")
+        let bench = Exercise(name: "Bench Press (Barbell)", equipment: .barbell, primary: .chest, secondary: [.triceps])
         let chest = Exercise(name: "Matrix Chest Press", primary: .chest, stack: Exercise.slots(from: 5, step: 5, to: 100),
                              addOn: 2.5, brand: "Matrix")
         let lateral = Exercise(name: "Lateral Raise (Dumbbell)", equipment: .dumbbell, primary: .shoulders, unilateral: true)
         let elliptical = Exercise(name: "Precor Elliptical", type: .distanceDuration, equipment: .cardio, primary: .cardio,
                                   brand: "Precor", settings: [incline, level])
-        let exercises = [legExt, legCurl, calf, crunch, row, shrug, chest, lateral, elliptical]
+        let exercises = [legExt, legCurl, calf, crunch, row, shrug, chest, lateral, elliptical, bench]
         let byId = Dictionary(uniqueKeysWithValues: exercises.map { ($0.id, $0) })
 
         func entry(_ e: Exercise, _ kinds: [SetKind], note: String = "", _ settings: [(Configurable, String)] = []) -> WorkoutExercise {
@@ -52,6 +53,8 @@ public enum Demo {
         let a = Routine(name: "FB A", folderId: folder.id, exercises: [
             entry(legExt, [.warmup, .normal, .normal, .drop], note: "seatbelt under legs", [(seat, "3"), (large, "1"), (small, "3")]),
             entry(legCurl, [.warmup, .normal, .normal], note: "hips down, slow on the way back", [(pad, "4"), (lever, "2")]),
+            entry(bench, [.warmup, .normal, .normal]),
+            entry(lateral, [.normal, .normal]),
             entry(calf, [.normal, .normal, .normal]),
             entry(row, [.warmup, .normal, .normal]),
             entry(crunch, [.normal, .normal, .normal]),
@@ -75,17 +78,29 @@ public enum Demo {
         ])
         let routines = [a, b, c, d]
 
-        /// The heaviest slot at or under the target, with the add-on when it still fits.
-        func weight(_ e: Exercise, _ target: Double) -> (kg: Double, addOn: Double?) {
-            guard let first = e.stack.first else { return ((target / 1.25).rounded() * 1.25, nil) }
-            let slot = e.stack.last(where: { $0 <= target }) ?? first
-            if let a = e.addOn, target - slot >= a { return (slot + a, a) }
-            return (slot, nil)
+        /// Near the target the way it is loaded: the heaviest slot under it (with the add-on when it fits),
+        /// a dumbbell in 2 kg steps with a small plate, or plates.
+        func load(_ e: Exercise, _ target: Double) -> Load? {
+            switch e.rig {
+            case .stack:
+                guard let first = e.stack.first else { return nil }
+                var l = Load(base: e.stack.last(where: { $0 <= target }) ?? first)
+                if let a = e.addOn, target - l.base >= a { l.addOn = a }
+                return l
+            case .dumbbell:
+                var l = Load(base: max(2, (target / 2).rounded(.down) * 2))
+                if target - l.base >= 1 { l.plates = [1] }
+                return l
+            case .barbell, .plateLoaded:
+                return Load.guess(max(e.barWeight, (target / 2.5).rounded() * 2.5), e)
+            case .plain:
+                return nil
+            }
         }
 
         let tops: [UUID: (Double, Double)] = [legExt.id: (80, 31), legCurl.id: (70, 25), calf.id: (100, 45),
                                                crunch.id: (30, 15), row.id: (40, 20), shrug.id: (60, 30),
-                                               chest.id: (60, 22), lateral.id: (10, 4)]
+                                               chest.id: (60, 22), lateral.id: (10, 4), bench.id: (40, 25)]
 
         func sets(_ e: Exercise, _ kinds: [SetKind], progress p: Double) -> [WorkSet] {
             var out: [WorkSet] = []
@@ -96,9 +111,8 @@ public enum Demo {
                 if e.type.hasKg, let t = tops[e.id] {
                     let top = t.0 + t.1 * p
                     let target = kind == .warmup ? top * 0.55 : kind == .drop ? top * 0.7 : top - Double(rng.int(0...1)) * 2.5
-                    let w = weight(e, target)
-                    s.kg = w.kg
-                    s.addOn = w.addOn
+                    s.load = load(e, target)
+                    s.kg = s.load?.total ?? (target / 1.25).rounded() * 1.25
                 }
                 if e.type.hasReps {
                     s.reps = reps
@@ -159,16 +173,14 @@ public enum Demo {
             active.exercises[0].sets[0].done = true
             var s1 = active.exercises[0].sets[1]
             s1.kg = 111
-            s1.addOn = 2
+            s1.load = Load(base: 109, addOn: 2)
             s1.reps = 8; s1.rir = 1; s1.repsR = 7; s1.rirR = 0
             s1.done = true
             active.exercises[0].sets[1] = s1
             active.exercises[0].note = ""
         }
 
-        let names = Set(exercises.map { $0.name.lowercased() })
-        let extra = Catalog.starter().filter { !names.contains($0.name.lowercased()) }
-        return Library(exercises: exercises + extra, folders: [folder], routines: routines,
+        return Library(exercises: exercises, folders: [folder], routines: routines,
                        gyms: [anytime, gymGroup], settings: Settings(gymId: anytime.id), workouts: workouts,
                        active: active)
     }

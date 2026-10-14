@@ -101,6 +101,15 @@ struct ExercisePicker: View {
                 }
                 Section(filter.isEmpty ? "All Exercises" : "\(all.count) found") {
                     ForEach(all) { row($0) }
+                    if all.isEmpty {
+                        Button { creating = true } label: {
+                            Label(filter.search.isEmpty ? "Create Exercise" : "Create \u{201C}\(filter.search)\u{201D}",
+                                  systemImage: "plus")
+                                .foregroundStyle(Theme.blue)
+                                .padding(.vertical, 10)
+                        }
+                        .listRowBackground(Theme.bg)
+                    }
                 }
             }
             .listStyle(.plain)
@@ -161,7 +170,7 @@ struct ExercisePicker: View {
     }
 }
 
-/// Create or edit an exercise. Hevy's fields plus L/R, the weight stack and add-on, brand and machine settings.
+/// Create or edit an exercise. Hevy's fields plus L/R, how its weight is loaded, brand and machine settings.
 struct ExerciseForm: View {
     @Environment(AppModel.self) private var model
     @Environment(\.dismiss) private var dismiss
@@ -221,33 +230,7 @@ struct ExerciseForm: View {
                     Toggle("Left and Right Separately", isOn: $exercise.unilateral)
                 }
             }
-            if exercise.type.hasKg {
-                Section {
-                    NavigationLink {
-                        StackEditor(stack: $exercise.stack)
-                    } label: {
-                        HStack {
-                            Text("Weight Stack")
-                            Spacer()
-                            Text(stackSummary).foregroundStyle(Theme.grey)
-                        }
-                    }
-                    Toggle("Add-on Weight", isOn: Binding(get: { exercise.addOn != nil },
-                                                          set: { exercise.addOn = $0 ? (exercise.addOn ?? 5) : nil }))
-                    if exercise.addOn != nil {
-                        HStack {
-                            Text("Add-on")
-                            Spacer()
-                            TextField("5", value: Binding(get: { exercise.addOn ?? 0 }, set: { exercise.addOn = $0 }),
-                                      format: .number)
-                                .keyboardType(.decimalPad)
-                                .multilineTextAlignment(.trailing)
-                                .frame(width: 80)
-                            Text("kg").foregroundStyle(Theme.grey)
-                        }
-                    }
-                }
-            }
+            weightSection
             Section("Settings") {
                 ForEach($exercise.settings) { $c in
                     HStack {
@@ -287,8 +270,11 @@ struct ExerciseForm: View {
                     e.brand = e.brand.trimmingCharacters(in: .whitespaces)
                     e.settings = e.settings.filter { !$0.name.trimmingCharacters(in: .whitespaces).isEmpty }
                     if !e.type.hasReps { e.unilateral = false }
-                    if !e.type.hasKg || (e.addOn ?? 0) <= 0 { e.addOn = nil }
-                    if !e.type.hasKg { e.stack = [] }
+                    // Only what this equipment uses is kept.
+                    if e.equipment != .machine { e.plateSides = 0 }
+                    if e.rig != .stack || (e.addOn ?? 0) <= 0 { e.addOn = nil }
+                    if e.rig != .stack { e.stack = [] }
+                    if e.rig != .barbell && e.rig != .plateLoaded { e.bar = nil }
                     onSave(e)
                     dismiss()
                 }
@@ -309,9 +295,67 @@ struct ExerciseForm: View {
 }
 
 extension ExerciseForm {
+    /// A stack machine: its slots and add-on. Plate loaded: the sides and the machine's own weight. A barbell: the bar.
+    @ViewBuilder
+    private var weightSection: some View {
+        if exercise.type.hasKg && [.machine, .cable, .barbell].contains(exercise.equipment) {
+            Section {
+                if exercise.equipment == .machine {
+                    Toggle("Plate Loaded", isOn: Binding(get: { exercise.plateSides > 0 },
+                                                         set: { exercise.plateSides = $0 ? 2 : 0 }))
+                }
+                switch exercise.rig {
+                case .stack:
+                    NavigationLink {
+                        StackEditor(stack: $exercise.stack)
+                    } label: {
+                        HStack {
+                            Text("Weight Stack")
+                            Spacer()
+                            Text(stackSummary).foregroundStyle(Theme.grey)
+                        }
+                    }
+                    KgField(title: "Add-on Weight", value: $exercise.addOn, placeholder: "None")
+                case .plateLoaded:
+                    Picker("Plates Go On", selection: $exercise.plateSides) {
+                        Text("Both Sides").tag(2)
+                        Text("One Side").tag(1)
+                    }
+                    KgField(title: "Machine Weight", value: $exercise.bar, placeholder: "0")
+                case .barbell:
+                    KgField(title: "Bar Weight", value: $exercise.bar, placeholder: "20")
+                default:
+                    EmptyView()
+                }
+            }
+        }
+    }
+
     private var stackSummary: String {
         guard let first = exercise.stack.first, let last = exercise.stack.last else { return "Any weight" }
         return "\(Format.kg(first))–\(Format.kg(last)) kg · \(exercise.stack.count)"
+    }
+}
+
+/// A weight typed into a form row. Text, not a number format, so it is kept as it is typed.
+struct KgField: View {
+    let title: String
+    @Binding var value: Double?
+    let placeholder: String
+    @State private var text = ""
+
+    var body: some View {
+        HStack {
+            Text(title)
+            Spacer()
+            TextField(placeholder, text: $text)
+                .keyboardType(.decimalPad)
+                .multilineTextAlignment(.trailing)
+                .frame(width: 80)
+            Text("kg").foregroundStyle(Theme.grey)
+        }
+        .onAppear { text = value.map { Format.kg($0) } ?? "" }
+        .onChange(of: text) { _, t in value = Double(t.replacingOccurrences(of: ",", with: ".")) }
     }
 }
 

@@ -23,10 +23,23 @@ extension AppModel {
             tab = .workout
         case "workout":
             showWorkout = true
-        case "weight", "reps":
+        case "weight", "reps", "pin":
             showWorkout = true
             if let editor, let entry = editor.workout.exercises.first, entry.sets.count > 2 {
-                editor.select(Cell(entry: entry.id, set: entry.sets[2].id, field: screen == "weight" ? .kg : .reps))
+                editor.select(Cell(entry: entry.id, set: entry.sets[2].id, field: screen == "reps" ? .reps : .kg))
+                if screen == "pin" {
+                    editor.pinPlates = true
+                    editor.addPlate(5)
+                }
+            }
+        case "plates", "dumbbell":
+            showWorkout = true
+            // Set 2 of the bench (one more plate than last time), or of the lateral raise with a small plate.
+            let name = screen == "plates" ? "Bench Press (Barbell)" : "Lateral Raise (Dumbbell)"
+            if let editor, let entry = editor.workout.exercises.first(where: { byId[$0.exerciseId]?.name == name }),
+               entry.sets.count > 1 {
+                editor.select(Cell(entry: entry.id, set: entry.sets[1].id, field: .kg))
+                if screen == "plates" { editor.addPlate(2.5) } else { editor.toggleMicro(1) }
             }
         case "record":
             showWorkout = true
@@ -36,7 +49,7 @@ extension AppModel {
                 let kg = Cell(entry: entry.id, set: entry.sets[2].id, field: .kg)
                 editor.select(kg)
                 editor.pickSlot(top)
-                if editor.addOn(kg) == nil { editor.toggleAddOn() }
+                if (editor.load(kg)?.addOn ?? 0) == 0 { editor.toggleAddOn() }
                 editor.select(Cell(entry: entry.id, set: entry.sets[2].id, field: .reps))
                 editor.key(.digit(1))
                 editor.key(.digit(2))
@@ -44,12 +57,13 @@ extension AppModel {
                 editor.toggleDone(entry.id, entry.sets[2].id)
                 skipRest()
             }
-        case "form":
+        case "form", "form-bar":
             showWorkout = true
             // A sheet set while the workout is still sliding up is dropped.
             try? await Task.sleep(for: .seconds(0.8))
-            if let editor, let entry = editor.workout.exercises.first {
-                editor.editingExercise = ExerciseLink(id: entry.exerciseId)
+            let name = screen == "form" ? "Precor Leg Extension" : "Bench Press (Barbell)"
+            if let id = exercises.first(where: { $0.name == name })?.id {
+                editor?.editingExercise = ExerciseLink(id: id)
             }
         case "rest":
             showWorkout = true
