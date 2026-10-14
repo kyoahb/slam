@@ -145,6 +145,68 @@ public struct Bests: Hashable, Sendable {
     }
 }
 
+/// A record just made, as the banner tells it: the best before, and the new one.
+public struct LiveRecord: Hashable, Sendable {
+    public var kind: RecordKind
+    public var before: Double?
+    public var after: Double
+    /// For set-by-set records: the best set at that position before, and the new set.
+    public var beforeSet: WorkSet?
+    public var afterSet: WorkSet?
+}
+
+public extension Bests {
+    /// The number a record kind is judged on, for one set.
+    static func measure(_ kind: RecordKind, _ s: WorkSet, _ type: ExerciseType) -> Double {
+        switch kind {
+        case .heaviest: s.kg ?? 0
+        case .e1rm: SetMath.e1rm(s) ?? 0
+        case .setVolume: SetMath.volume(s, type)
+        case .reps: Double(SetMath.reps(s))
+        case .seconds: Double(s.seconds ?? 0)
+        case .meters: s.meters ?? 0
+        case .sessionVolume, .set: SetMath.score(s, type)
+        }
+    }
+
+    private func best(_ kind: RecordKind) -> WorkSet? {
+        switch kind {
+        case .heaviest: heaviest
+        case .e1rm: e1rm
+        case .setVolume: setVolume
+        case .reps: reps
+        case .seconds: seconds
+        case .meters: meters
+        case .sessionVolume: nil
+        case .set(let i): bySet.indices.contains(i) ? bySet[i] : nil
+        }
+    }
+
+    /// Records the set `setId` just made, with `e` the exercise so far today. Earlier sets today count as "before".
+    func news(_ e: WorkoutExercise, set setId: UUID) -> [LiveRecord] {
+        var old = e
+        for i in old.sets.indices where old.sets[i].id == setId { old.sets[i].done = false }
+        let had = Set(records(old))
+        let earlier = SetMath.working(old)
+        return records(e).filter { !had.contains($0) && ($0.setId == setId || $0.setId == nil) }.compactMap { r in
+            switch r.kind {
+            case .sessionVolume:
+                let total = SetMath.working(e).reduce(0) { $0 + SetMath.volume($1, type) }
+                return LiveRecord(kind: r.kind, before: sessionVolume, after: total)
+            case .set:
+                guard let now = e.sets.first(where: { $0.id == setId }) else { return nil }
+                return LiveRecord(kind: r.kind, before: nil, after: Self.measure(r.kind, now, type),
+                                  beforeSet: best(r.kind), afterSet: now)
+            default:
+                guard let now = e.sets.first(where: { $0.id == setId }) else { return nil }
+                let then = ([best(r.kind)].compactMap { $0 } + earlier).map { Self.measure(r.kind, $0, type) }.max()
+                return LiveRecord(kind: r.kind, before: then.flatMap { $0 > 0 ? $0 : nil },
+                                  after: Self.measure(r.kind, now, type), afterSet: now)
+            }
+        }
+    }
+}
+
 public enum Records {
     /// Records set in each workout, checked against everything logged before it.
     public static func all(_ workouts: [Workout], exercises: [UUID: Exercise]) -> [UUID: [Record]] {

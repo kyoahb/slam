@@ -38,9 +38,8 @@ struct RootView: View {
             let wait = end.timeIntervalSinceNow
             if wait > 0 { try? await Task.sleep(for: .seconds(wait)) }
             guard !Task.isCancelled, model.restEnd == end else { return }
-            model.restFinished()
+            model.restFinished(late: -end.timeIntervalSinceNow > 2)
         }
-        .sensoryFeedback(.success, trigger: model.restDoneTick)
     }
 }
 

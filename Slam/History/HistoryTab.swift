@@ -16,12 +16,13 @@ struct HistoryTab: View {
         NavigationStack(path: $model.historyPath) {
             let groups = grouped(filtered)
             ScrollView {
-                LazyVStack(alignment: .leading, spacing: 8, pinnedViews: .sectionHeaders) {
+                LazyVStack(alignment: .leading, spacing: 0, pinnedViews: .sectionHeaders) {
                     ForEach(groups) { g in
                         Section {
                             ForEach(g.workouts) { w in
                                 NavigationLink(value: WorkoutLink(id: w.id)) { WorkoutCard(workout: w) }
                                     .buttonStyle(.plain)
+                                Rectangle().fill(Theme.surface).frame(height: 8)
                             }
                         } header: {
                             Text(g.id.formatted(.dateTime.month(.wide).year()))
@@ -119,42 +120,63 @@ struct HistoryTab: View {
     }
 }
 
-/// Hevy's feed card: title, time, volume, records, photo, first exercises.
+/// Hevy's feed card: title, when and where, time, volume, records, photo, the first three exercises.
 struct WorkoutCard: View {
     @Environment(AppModel.self) private var model
     let workout: Workout
 
     var body: some View {
-        let records = model.records[workout.id]?.count ?? 0
-        VStack(alignment: .leading, spacing: 12) {
-            VStack(alignment: .leading, spacing: 3) {
-                Text(workout.title.isEmpty ? "Workout" : workout.title)
-                    .font(.headline)
-                    .foregroundStyle(.white)
-                Text(subtitle)
+        let records = model.records[workout.id] ?? []
+        VStack(alignment: .leading, spacing: 14) {
+            HStack(alignment: .top, spacing: 8) {
+                VStack(alignment: .leading, spacing: 3) {
+                    Text(workout.title.isEmpty ? "Workout" : workout.title)
+                        .font(.title3.weight(.bold))
+                        .foregroundStyle(.white)
+                        .lineLimit(2)
+                    HStack(spacing: 4) {
+                        Text(workout.start.relativeDay + ", " + workout.start.time)
+                        if let gym = model.gym(workout.gymId)?.name {
+                            Text("·")
+                            Image(systemName: "mappin.and.ellipse").font(.caption2)
+                            Text(gym)
+                        }
+                    }
                     .font(.footnote)
                     .foregroundStyle(Theme.grey)
                     .lineLimit(1)
+                }
+                Spacer(minLength: 0)
+                ShareLink(item: ShareText.workout(workout, model)) {
+                    Image(systemName: "square.and.arrow.up")
+                        .font(.body.weight(.semibold))
+                        .foregroundStyle(.white)
+                        .frame(width: 40, height: 36)
+                        .contentShape(Rectangle())
+                }
+                .accessibilityLabel("Share workout")
             }
-            HStack(spacing: 28) {
+            HStack(spacing: 26) {
                 StatColumn(title: "Time", value: Format.duration(workout.duration))
                 StatColumn(title: "Volume", value: Format.volume(Stats.volume(workout, model.byId)))
-                if records > 0 {
+                StatColumn(title: "Sets", value: String(Stats.sets(workout)))
+                if !records.isEmpty {
                     VStack(alignment: .leading, spacing: 2) {
                         Text("Records").font(.caption).foregroundStyle(Theme.grey)
-                        Label(String(records), systemImage: "medal.fill")
+                        Label(String(records.count), systemImage: "medal.fill")
                             .font(.subheadline.weight(.semibold))
                             .foregroundStyle(Theme.medal)
+                            .labelStyle(.titleAndIcon)
                     }
                 }
                 Spacer(minLength: 0)
             }
             if let photo = workout.photos.first {
                 Color.clear
-                    .frame(height: 190)
+                    .frame(height: 220)
                     .frame(maxWidth: .infinity)
                     .overlay { StoredImage(file: photo.file) }
-                    .clipShape(RoundedRectangle(cornerRadius: 10))
+                    .clipShape(RoundedRectangle(cornerRadius: 12))
                     .overlay(alignment: .topTrailing) {
                         if workout.photos.count > 1 {
                             Text("+\(workout.photos.count - 1)")
@@ -166,34 +188,54 @@ struct WorkoutCard: View {
                         }
                     }
             }
-            VStack(alignment: .leading, spacing: 8) {
+            VStack(alignment: .leading, spacing: 10) {
                 ForEach(workout.exercises.prefix(3)) { e in
-                    HStack(spacing: 10) {
-                        Thumb(exercise: model.byId[e.exerciseId], size: 32)
-                        Text("\(e.sets.count) \(e.sets.count == 1 ? "set" : "sets") \(model.byId[e.exerciseId]?.name ?? "Deleted exercise")")
-                            .font(.subheadline)
-                            .foregroundStyle(.white)
-                            .lineLimit(1)
-                    }
+                    row(e, medal: records.contains { r in r.exerciseId == e.exerciseId })
                 }
                 if workout.exercises.count > 3 {
                     let more = workout.exercises.count - 3
                     Text("See \(more) more \(more == 1 ? "exercise" : "exercises")")
                         .font(.subheadline)
                         .foregroundStyle(Theme.grey)
+                        .frame(maxWidth: .infinity)
+                        .padding(.top, 2)
                 }
             }
         }
-        .padding(16)
+        .padding(.horizontal, 16)
+        .padding(.vertical, 16)
         .frame(maxWidth: .infinity, alignment: .leading)
-        .background(Theme.surface)
+        .background(Theme.bg)
         .contentShape(Rectangle())
     }
 
-    private var subtitle: String {
-        let day = workout.start.formatted(.dateTime.weekday(.wide).day().month(.abbreviated)) + ", " + workout.start.time
-        guard let gym = model.gym(workout.gymId)?.name else { return day }
-        return day + " · " + gym
+    /// "3 sets  Leg Extension" with the best set underneath.
+    private func row(_ e: WorkoutExercise, medal: Bool) -> some View {
+        let ex = model.byId[e.exerciseId]
+        let best = ex.flatMap { x in SetMath.working(e).max { SetMath.score($0, x.type) < SetMath.score($1, x.type) } }
+        return HStack(spacing: 12) {
+            Thumb(exercise: ex, size: 40)
+            VStack(alignment: .leading, spacing: 2) {
+                Text(ex?.name ?? "Deleted exercise")
+                    .font(.subheadline.weight(.semibold))
+                    .foregroundStyle(.white)
+                    .lineLimit(1)
+                HStack(spacing: 4) {
+                    Text("\(e.sets.count) \(e.sets.count == 1 ? "set" : "sets")")
+                    if let best, let ex {
+                        Text("·")
+                        Text(SetText.describe(best, ex)).monospacedDigit()
+                    }
+                }
+                .font(.footnote)
+                .foregroundStyle(Theme.grey)
+                .lineLimit(1)
+            }
+            Spacer(minLength: 0)
+            if medal {
+                Image(systemName: "medal.fill").font(.footnote).foregroundStyle(Theme.medal)
+            }
+        }
     }
 }
 
@@ -202,5 +244,30 @@ extension View {
     func appDestinations() -> some View {
         navigationDestination(for: WorkoutLink.self) { WorkoutDetailView(id: $0.id) }
             .navigationDestination(for: ExerciseLink.self) { ExerciseDetailView(id: $0.id) }
+            .navigationDestination(for: WeekLink.self) { WeekView(start: $0.start) }
+    }
+}
+
+/// One week's workouts, from a tapped bar.
+struct WeekView: View {
+    @Environment(AppModel.self) private var model
+    let start: Date
+
+    var body: some View {
+        let cal = Stats.mondayCalendar()
+        let list = model.workouts.filter { Stats.weekStart($0.start, cal) == start }
+        let end = cal.date(byAdding: .day, value: 6, to: start) ?? start
+        ScrollView {
+            LazyVStack(spacing: 0) {
+                ForEach(list) { w in
+                    NavigationLink(value: WorkoutLink(id: w.id)) { WorkoutCard(workout: w) }.buttonStyle(.plain)
+                    Rectangle().fill(Theme.surface).frame(height: 8)
+                }
+            }
+        }
+        .background(Theme.bg)
+        .overlay { if list.isEmpty { EmptyStats(title: "No workouts this week", icon: "calendar") } }
+        .navigationTitle(start.shortDay + " – " + end.shortDay)
+        .navigationBarTitleDisplayMode(.inline)
     }
 }

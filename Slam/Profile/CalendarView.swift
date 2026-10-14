@@ -1,7 +1,7 @@
 import SwiftUI
 import SlamCore
 
-/// Every month since the first workout; workout days are filled in.
+/// Every month since the first workout (a year at least), oldest first; workout days are filled in.
 struct CalendarView: View {
     @Environment(AppModel.self) private var model
     private let calendar = Stats.mondayCalendar()
@@ -11,25 +11,40 @@ struct CalendarView: View {
         let byDay = Dictionary(grouping: model.workouts) { calendar.startOfDay(for: $0.start) }
         let months = monthList(dates)
         ScrollView {
-            LazyVStack(alignment: .leading, spacing: 26) {
+            LazyVStack(alignment: .leading, spacing: 28) {
                 ForEach(months, id: \.self) { m in
                     MonthGrid(month: m, calendar: calendar, byDay: byDay)
                 }
             }
-            .padding(16)
+            .padding(.horizontal, 12)
+            .padding(.vertical, 16)
         }
         .defaultScrollAnchor(.bottom)
         .background(Theme.bg)
         .safeAreaInset(edge: .top, spacing: 0) {
-            HStack(spacing: 28) {
-                let streak = Stats.weekStreak(dates)
-                let rest = Stats.restDays(dates)
-                StatColumn(title: "Streak", value: streak == 1 ? "1 week" : "\(streak) weeks", tint: Theme.blue)
-                StatColumn(title: "Rest", value: rest == 1 ? "1 day" : "\(rest) days")
-                Spacer()
+            VStack(spacing: 10) {
+                HStack(spacing: 0) {
+                    let streak = Stats.weekStreak(dates)
+                    let rest = Stats.restDays(dates)
+                    Label(streak == 1 ? "1 week streak" : "\(streak) week streak", systemImage: "flame.fill")
+                        .frame(maxWidth: .infinity)
+                    Rectangle().fill(Theme.line).frame(width: 1, height: 22)
+                    Label(rest == 1 ? "1 rest day" : "\(rest) rest days", systemImage: "moon.fill")
+                        .frame(maxWidth: .infinity)
+                }
+                .font(.subheadline.weight(.semibold))
+                .labelStyle(TintedIcon())
+                HStack(spacing: 0) {
+                    ForEach(["Mon", "Tue", "Wed", "Thu", "Fri", "Sat", "Sun"], id: \.self) { d in
+                        Text(d).frame(maxWidth: .infinity)
+                    }
+                }
+                .font(.caption.weight(.semibold))
+                .foregroundStyle(Theme.grey)
+                .padding(.horizontal, 12)
             }
-            .padding(.horizontal, 16)
-            .padding(.vertical, 8)
+            .padding(.top, 8)
+            .padding(.bottom, 8)
             .background(Theme.bg)
             .overlay(alignment: .bottom) { Rectangle().fill(Theme.line).frame(height: 1) }
         }
@@ -39,15 +54,26 @@ struct CalendarView: View {
 
     private func monthList(_ dates: [Date]) -> [Date] {
         let now = calendar.dateInterval(of: .month, for: Date())?.start ?? Date()
-        guard let first = dates.min().flatMap({ calendar.dateInterval(of: .month, for: $0)?.start }) else { return [now] }
+        let yearAgo = calendar.date(byAdding: .month, value: -11, to: now) ?? now
+        let first = dates.min().flatMap { calendar.dateInterval(of: .month, for: $0)?.start } ?? now
         var out: [Date] = []
-        var cursor = first
+        var cursor = min(first, yearAgo)
         while cursor <= now {
             out.append(cursor)
             guard let next = calendar.date(byAdding: .month, value: 1, to: cursor) else { break }
             cursor = next
         }
         return out
+    }
+}
+
+/// Flame and moon in their own colours, the text white.
+struct TintedIcon: LabelStyle {
+    func makeBody(configuration: Configuration) -> some View {
+        HStack(spacing: 6) {
+            configuration.icon.foregroundStyle(Theme.blue)
+            configuration.title.foregroundStyle(.white)
+        }
     }
 }
 
@@ -60,29 +86,44 @@ struct MonthGrid: View {
         let days = calendar.range(of: .day, in: .month, for: month)?.count ?? 30
         let offset = (calendar.component(.weekday, from: month) + 5) % 7
         let cols = Array(repeating: GridItem(.flexible(), spacing: 0), count: 7)
-        VStack(alignment: .leading, spacing: 10) {
-            Text(month.formatted(.dateTime.month(.wide).year())).font(.headline)
-            LazyVGrid(columns: cols, spacing: 6) {
-                ForEach(Array(["M", "T", "W", "T", "F", "S", "S"].enumerated()), id: \.offset) { _, d in
-                    Text(d).font(.caption.weight(.semibold)).foregroundStyle(Theme.grey)
+        let count = (1...days).reduce(0) { n, day in
+            n + (calendar.date(byAdding: .day, value: day - 1, to: month).flatMap { byDay[$0]?.count } ?? 0)
+        }
+        VStack(alignment: .leading, spacing: 12) {
+            HStack(alignment: .firstTextBaseline) {
+                Text(month.formatted(.dateTime.month(.wide).year())).font(.headline)
+                Spacer()
+                if count > 0 {
+                    Text(count == 1 ? "1 workout" : "\(count) workouts").font(.footnote).foregroundStyle(Theme.grey)
                 }
-                ForEach(0..<offset, id: \.self) { _ in Color.clear.frame(height: 38) }
+            }
+            .padding(.horizontal, 4)
+            LazyVGrid(columns: cols, spacing: 4) {
+                ForEach(0..<offset, id: \.self) { _ in Color.clear.frame(height: 50) }
                 ForEach(1...days, id: \.self) { day in
                     let date = calendar.date(byAdding: .day, value: day - 1, to: month) ?? month
-                    cell(day, byDay[date]?.first)
+                    cell(day, byDay[date]?.first, today: calendar.isDateInToday(date))
                 }
             }
         }
     }
 
     @ViewBuilder
-    private func cell(_ day: Int, _ w: Workout?) -> some View {
-        let label = Text(String(day))
-            .font(.subheadline.weight(w == nil ? .regular : .semibold))
-            .foregroundStyle(w == nil ? Theme.grey : .white)
-            .frame(width: 36, height: 36)
-            .background(Circle().fill(w == nil ? .clear : Theme.blue))
-            .frame(height: 38)
+    private func cell(_ day: Int, _ w: Workout?, today: Bool) -> some View {
+        let label = VStack(spacing: 2) {
+            Text(String(day))
+                .font(.subheadline.weight(w == nil ? .regular : .semibold))
+                .foregroundStyle(w == nil ? (today ? Theme.blue : Theme.grey) : .white)
+                .frame(width: 34, height: 34)
+                .background(Circle().fill(w == nil ? .clear : Theme.blue))
+                .overlay { if today && w == nil { Circle().strokeBorder(Theme.blue, lineWidth: 1.5) } }
+            Text(w.map { $0.title.isEmpty ? "Workout" : $0.title } ?? " ")
+                .font(.system(size: 9, weight: .medium))
+                .foregroundStyle(Theme.grey)
+                .lineLimit(1)
+                .padding(.horizontal, 1)
+        }
+        .frame(maxWidth: .infinity, minHeight: 50)
         if let w {
             NavigationLink(value: WorkoutLink(id: w.id)) { label }.buttonStyle(.plain)
         } else {

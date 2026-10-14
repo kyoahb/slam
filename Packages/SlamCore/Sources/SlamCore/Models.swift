@@ -70,37 +70,6 @@ public enum Muscle: String, Codable, CaseIterable, Sendable {
     }
 }
 
-/// How a weight is physically made up.
-public enum LoadKind: String, Codable, CaseIterable, Sendable {
-    /// Just a number (dumbbells, cable stack without extras).
-    case plain
-    /// Selectorised stack, optional add-on weight, plates on a gym pin.
-    case pinMachine
-    /// Plates loaded on each side of a bar or lever.
-    case plateLoaded
-
-    public var title: String {
-        switch self {
-        case .plain: "Plain"
-        case .pinMachine: "Pin machine"
-        case .plateLoaded: "Plate loaded"
-        }
-    }
-}
-
-/// The parts of a set's weight: stack (or bar), add-on, and plates (on the pin, or per side).
-public struct Load: Codable, Hashable, Sendable {
-    public var base: Double
-    public var addOn: Double
-    public var plates: [Double]
-
-    public init(base: Double = 0, addOn: Double = 0, plates: [Double] = []) {
-        self.base = base
-        self.addOn = addOn
-        self.plates = plates
-    }
-}
-
 /// A seat height, pad position, incline... A name with a number or word value.
 public struct Configurable: Codable, Hashable, Identifiable, Sendable {
     public var id: UUID
@@ -123,15 +92,18 @@ public struct Exercise: Codable, Hashable, Identifiable, Sendable {
     public var primary: Muscle
     public var secondary: [Muscle]
     public var unilateral: Bool
-    public var load: LoadKind
+    /// The weights a machine's stack can be pinned at, lightest first. Empty: any weight can be typed.
+    public var stack: [Double]
+    /// A fixed extra weight the machine can add on top, switched on or off per set. Nil: the machine has none.
+    public var addOn: Double?
     public var brand: String
     public var settings: [Configurable]
     public var photo: String?
     public var hevyId: String?
 
     public init(id: UUID = UUID(), name: String, type: ExerciseType = .weightReps, equipment: Equipment = .machine,
-                primary: Muscle = .other, secondary: [Muscle] = [], unilateral: Bool = false, load: LoadKind = .plain,
-                brand: String = "", settings: [Configurable] = [], photo: String? = nil, hevyId: String? = nil) {
+                primary: Muscle = .other, secondary: [Muscle] = [], unilateral: Bool = false, stack: [Double] = [],
+                addOn: Double? = nil, brand: String = "", settings: [Configurable] = [], photo: String? = nil, hevyId: String? = nil) {
         self.id = id
         self.name = name
         self.type = type
@@ -139,7 +111,8 @@ public struct Exercise: Codable, Hashable, Identifiable, Sendable {
         self.primary = primary
         self.secondary = secondary
         self.unilateral = unilateral
-        self.load = load
+        self.stack = stack
+        self.addOn = addOn
         self.brand = brand
         self.settings = settings
         self.photo = photo
@@ -155,11 +128,24 @@ public struct Exercise: Codable, Hashable, Identifiable, Sendable {
         primary = try c.value(.primary, .other)
         secondary = try c.value(.secondary, [])
         unilateral = try c.value(.unilateral, false)
-        load = try c.value(.load, .plain)
+        stack = try c.value(.stack, [])
+        addOn = try c.decodeIfPresent(Double.self, forKey: .addOn)
         brand = try c.value(.brand, "")
         settings = try c.value(.settings, [])
         photo = try c.decodeIfPresent(String.self, forKey: .photo)
         hevyId = try c.decodeIfPresent(String.self, forKey: .hevyId)
+    }
+
+    /// Evenly spaced stack slots: from 5 by 5 to 90 gives 5, 10 … 90.
+    public static func slots(from: Double, step: Double, to: Double) -> [Double] {
+        guard step > 0, from >= 0, to >= from, (to - from) / step < 200 else { return [] }
+        var out: [Double] = []
+        var v = from
+        while v <= to + 0.001 {
+            out.append((v * 100).rounded() / 100)
+            v += step
+        }
+        return out
     }
 
     public var initials: String {
@@ -180,12 +166,13 @@ public struct WorkSet: Codable, Hashable, Identifiable, Sendable {
     public var rirR: Int?
     public var seconds: Int?
     public var meters: Double?
-    public var load: Load?
+    /// The add-on weight included in `kg`, when it was switched on.
+    public var addOn: Double?
     public var done: Bool
     public var doneAt: Date?
 
     public init(id: UUID = UUID(), kind: SetKind = .normal, kg: Double? = nil, reps: Int? = nil, rir: Int? = nil,
-                repsR: Int? = nil, rirR: Int? = nil, seconds: Int? = nil, meters: Double? = nil, load: Load? = nil,
+                repsR: Int? = nil, rirR: Int? = nil, seconds: Int? = nil, meters: Double? = nil, addOn: Double? = nil,
                 done: Bool = false, doneAt: Date? = nil) {
         self.id = id
         self.kind = kind
@@ -196,7 +183,7 @@ public struct WorkSet: Codable, Hashable, Identifiable, Sendable {
         self.rirR = rirR
         self.seconds = seconds
         self.meters = meters
-        self.load = load
+        self.addOn = addOn
         self.done = done
         self.doneAt = doneAt
     }
@@ -212,10 +199,13 @@ public struct WorkSet: Codable, Hashable, Identifiable, Sendable {
         rirR = try c.decodeIfPresent(Int.self, forKey: .rirR)
         seconds = try c.decodeIfPresent(Int.self, forKey: .seconds)
         meters = try c.decodeIfPresent(Double.self, forKey: .meters)
-        load = try c.decodeIfPresent(Load.self, forKey: .load)
+        addOn = try c.decodeIfPresent(Double.self, forKey: .addOn)
         done = try c.value(.done, false)
         doneAt = try c.decodeIfPresent(Date.self, forKey: .doneAt)
     }
+
+    /// The weight without the add-on: the stack slot on a machine.
+    public var base: Double? { kg.map { $0 - (addOn ?? 0) } }
 
     public var isEmpty: Bool {
         kg == nil && reps == nil && repsR == nil && seconds == nil && meters == nil
@@ -225,9 +215,10 @@ public struct WorkSet: Codable, Hashable, Identifiable, Sendable {
     public func filled(from other: WorkSet?) -> WorkSet {
         guard let other else { return self }
         var s = self
-        if s.kg == nil {
-            s.kg = other.kg
-            if s.load == nil { s.load = other.load }
+        if s.kg == nil, let base = other.base {
+            // An add-on switched on before any weight was picked stays on.
+            s.addOn = s.addOn ?? other.addOn
+            s.kg = base + (s.addOn ?? 0)
         }
         if s.reps == nil { s.reps = other.reps }
         if s.repsR == nil { s.repsR = other.repsR }
@@ -394,14 +385,11 @@ public struct Settings: Codable, Hashable, Sendable {
     public var warmupRestSeconds: Int
     /// Gym new workouts are logged at.
     public var gymId: UUID?
-    /// Plate sizes on hand for pins and bars.
-    public var plates: [Double]
 
-    public init(restSeconds: Int = 120, warmupRestSeconds: Int = 60, gymId: UUID? = nil, plates: [Double] = Plates.standard) {
+    public init(restSeconds: Int = 120, warmupRestSeconds: Int = 60, gymId: UUID? = nil) {
         self.restSeconds = restSeconds
         self.warmupRestSeconds = warmupRestSeconds
         self.gymId = gymId
-        self.plates = plates
     }
 
     public init(from decoder: Decoder) throws {
@@ -409,7 +397,6 @@ public struct Settings: Codable, Hashable, Sendable {
         restSeconds = try c.value(.restSeconds, 120)
         warmupRestSeconds = try c.value(.warmupRestSeconds, 60)
         gymId = try c.decodeIfPresent(UUID.self, forKey: .gymId)
-        plates = try c.value(.plates, Plates.standard)
     }
 }
 

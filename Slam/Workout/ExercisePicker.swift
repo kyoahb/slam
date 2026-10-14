@@ -161,7 +161,7 @@ struct ExercisePicker: View {
     }
 }
 
-/// Create or edit an exercise. Hevy's fields plus L/R, weight setup, brand and machine settings.
+/// Create or edit an exercise. Hevy's fields plus L/R, the weight stack and add-on, brand and machine settings.
 struct ExerciseForm: View {
     @Environment(AppModel.self) private var model
     @Environment(\.dismiss) private var dismiss
@@ -220,9 +220,31 @@ struct ExerciseForm: View {
                 if exercise.type.hasReps {
                     Toggle("Left and Right Separately", isOn: $exercise.unilateral)
                 }
-                if exercise.type.hasKg {
-                    Picker("Weight Setup", selection: $exercise.load) {
-                        ForEach(LoadKind.allCases, id: \.self) { Text($0.title).tag($0) }
+            }
+            if exercise.type.hasKg {
+                Section {
+                    NavigationLink {
+                        StackEditor(stack: $exercise.stack)
+                    } label: {
+                        HStack {
+                            Text("Weight Stack")
+                            Spacer()
+                            Text(stackSummary).foregroundStyle(Theme.grey)
+                        }
+                    }
+                    Toggle("Add-on Weight", isOn: Binding(get: { exercise.addOn != nil },
+                                                          set: { exercise.addOn = $0 ? (exercise.addOn ?? 5) : nil }))
+                    if exercise.addOn != nil {
+                        HStack {
+                            Text("Add-on")
+                            Spacer()
+                            TextField("5", value: Binding(get: { exercise.addOn ?? 0 }, set: { exercise.addOn = $0 }),
+                                      format: .number)
+                                .keyboardType(.decimalPad)
+                                .multilineTextAlignment(.trailing)
+                                .frame(width: 80)
+                            Text("kg").foregroundStyle(Theme.grey)
+                        }
                     }
                 }
             }
@@ -265,13 +287,15 @@ struct ExerciseForm: View {
                     e.brand = e.brand.trimmingCharacters(in: .whitespaces)
                     e.settings = e.settings.filter { !$0.name.trimmingCharacters(in: .whitespaces).isEmpty }
                     if !e.type.hasReps { e.unilateral = false }
-                    if !e.type.hasKg { e.load = .plain }
+                    if !e.type.hasKg || (e.addOn ?? 0) <= 0 { e.addOn = nil }
+                    if !e.type.hasKg { e.stack = [] }
                     onSave(e)
                     dismiss()
                 }
                 .disabled(exercise.name.trimmingCharacters(in: .whitespaces).isEmpty)
             }
         }
+        .scrollDismissesKeyboard(.interactively)
         .onChange(of: item) { _, picked in
             guard let picked else { return }
             Task {
@@ -280,6 +304,103 @@ struct ExerciseForm: View {
                 }
                 item = nil
             }
+        }
+    }
+}
+
+extension ExerciseForm {
+    private var stackSummary: String {
+        guard let first = exercise.stack.first, let last = exercise.stack.last else { return "Any weight" }
+        return "\(Format.kg(first))–\(Format.kg(last)) kg · \(exercise.stack.count)"
+    }
+}
+
+/// The weights a machine's stack can be pinned at: filled in steps, then single slots added or removed.
+struct StackEditor: View {
+    @Binding var stack: [Double]
+    @State private var from = ""
+    @State private var step = ""
+    @State private var to = ""
+    @State private var extra = ""
+    @FocusState private var typing: Bool
+
+    var body: some View {
+        Form {
+            Section {
+                HStack(spacing: 12) {
+                    number("From", $from)
+                    number("Step", $step)
+                    number("To", $to)
+                }
+                Button("Fill Slots") {
+                    stack = filled
+                    typing = false
+                }
+                .disabled(filled.isEmpty)
+            }
+            Section(stack.isEmpty ? "Any weight" : "\(stack.count) slots") {
+                if !stack.isEmpty {
+                    LazyVGrid(columns: Array(repeating: GridItem(.flexible(), spacing: 8), count: 4), spacing: 8) {
+                        ForEach(stack, id: \.self) { v in
+                            Button { stack.removeAll { $0 == v } } label: {
+                                HStack(spacing: 4) {
+                                    Text(Format.kg(v)).monospacedDigit()
+                                    Image(systemName: "xmark").font(.caption2.weight(.bold)).foregroundStyle(Theme.grey)
+                                }
+                                .frame(maxWidth: .infinity)
+                            }
+                            .buttonStyle(PillButton())
+                        }
+                    }
+                    .padding(.vertical, 4)
+                }
+                HStack {
+                    TextField("Add a slot", text: $extra)
+                        .keyboardType(.decimalPad)
+                        .focused($typing)
+                    Button("Add") { add() }
+                        .buttonStyle(.borderless)
+                        .disabled(Double(extra.replacingOccurrences(of: ",", with: ".")) == nil)
+                }
+                if !stack.isEmpty {
+                    Button("Remove All", role: .destructive) { stack = [] }
+                }
+            }
+        }
+        .scrollContentBackground(.hidden)
+        .background(Theme.bg)
+        .scrollDismissesKeyboard(.interactively)
+        .navigationTitle("Weight Stack")
+        .navigationBarTitleDisplayMode(.inline)
+        .onAppear {
+            guard let first = stack.first, let last = stack.last else { return }
+            from = Format.kg(first)
+            to = Format.kg(last)
+            if stack.count > 1 { step = Format.kg(stack[1] - first) }
+        }
+    }
+
+    private func value(_ text: String) -> Double? { Double(text.replacingOccurrences(of: ",", with: ".")) }
+
+    private var filled: [Double] {
+        guard let a = value(from), let d = value(step), let b = value(to) else { return [] }
+        return Exercise.slots(from: a, step: d, to: b)
+    }
+
+    private func add() {
+        guard let v = value(extra), v >= 0 else { return }
+        if !stack.contains(where: { abs($0 - v) < 0.001 }) { stack = (stack + [v]).sorted() }
+        extra = ""
+    }
+
+    private func number(_ title: String, _ text: Binding<String>) -> some View {
+        VStack(alignment: .leading, spacing: 2) {
+            Text(title).font(.caption).foregroundStyle(Theme.grey)
+            TextField("–", text: text)
+                .keyboardType(.decimalPad)
+                .focused($typing)
+                .font(.body.weight(.semibold))
+                .monospacedDigit()
         }
     }
 }

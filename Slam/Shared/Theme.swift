@@ -118,4 +118,15 @@ extension Date {
     var dayTitle: String { formatted(.dateTime.weekday(.wide).day().month(.abbreviated).year()) }
     var shortDay: String { formatted(.dateTime.day().month(.abbreviated)) }
     var time: String { formatted(date: .omitted, time: .shortened) }
+
+    /// Today, Yesterday, Monday 6 Oct, or with the year when it is not this one.
+    var relativeDay: String {
+        let cal = Calendar.current
+        if cal.isDateInToday(self) { return "Today" }
+        if cal.isDateInYesterday(self) { return "Yesterday" }
+        if cal.isDate(self, equalTo: Date(), toGranularity: .year) {
+            return formatted(.dateTime.weekday(.wide).day().month(.abbreviated))
+        }
+        return formatted(.dateTime.day().month(.abbreviated).year())
+    }
 }

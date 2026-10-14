@@ -15,8 +15,6 @@ struct SettingsView: View {
         var id: URL { url }
     }
 
-    static let plateSizes: [Double] = [0.5, 1.25, 2.5, 5, 10, 15, 20, 25]
-
     var body: some View {
         @Bindable var model = model
         Form {
@@ -57,16 +55,6 @@ struct SettingsView: View {
                     addingGym = true
                 }
             }
-            Section("Plates") {
-                LazyVGrid(columns: Array(repeating: GridItem(.flexible(), spacing: 8), count: 4), spacing: 8) {
-                    ForEach(Self.plateSizes, id: \.self) { p in
-                        let on = model.settings.plates.contains(p)
-                        Button(Format.kg(p)) { toggle(p) }
-                            .buttonStyle(PillButton(fill: on ? Theme.blue : Theme.control))
-                    }
-                }
-                .padding(.vertical, 4)
-            }
             Section {
                 Button("Export Data", systemImage: "square.and.arrow.up") {
                     if let url = model.exportFile() { export = ExportFile(url: url) }
@@ -106,15 +94,6 @@ struct SettingsView: View {
     }
 
     private func used(_ g: Gym) -> Bool { model.workouts.contains { $0.gymId == g.id } }
-
-    private func toggle(_ p: Double) {
-        if let i = model.settings.plates.firstIndex(of: p) {
-            model.settings.plates.remove(at: i)
-        } else {
-            model.settings.plates.append(p)
-            model.settings.plates.sort()
-        }
-    }
 }
 
 struct RestStepper: View {

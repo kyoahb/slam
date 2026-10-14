@@ -11,10 +11,9 @@ enum EditorMode {
 }
 
 enum Field: Hashable {
-    case kg, reps, repsR, time, distance, stack, addOn
+    case kg, reps, repsR, time, distance
 
-    var isWeight: Bool { self == .kg || self == .stack || self == .addOn }
-    var allowsDot: Bool { isWeight || self == .distance }
+    var allowsDot: Bool { self == .kg || self == .distance }
 }
 
 struct Cell: Hashable {
@@ -54,12 +53,16 @@ final class WorkoutEditor: Identifiable {
     var editingExercise: ExerciseLink?
     var saving = false
     var doneTick = 0
+    var recordTick = 0
+    /// The record banner showing at the top of the live workout.
+    var banner: RecordBanner?
+    /// Records made so far in this workout, by entry.
+    private(set) var liveRecords: [UUID: [Record]] = [:]
     var folderId: UUID?
     var isNew = false
 
-    @ObservationIgnored private var typingFrom: WorkSet?
     @ObservationIgnored private var lastCache: [UUID: WorkoutExercise?] = [:]
-    @ObservationIgnored private var plateCache: [UUID: Double?] = [:]
+    @ObservationIgnored private var bestsCache: [UUID: Bests] = [:]
 
     struct Pos {
         var e: Int
@@ -70,6 +73,9 @@ final class WorkoutEditor: Identifiable {
         self.workout = workout
         self.mode = mode
         self.app = app
+        if mode == .live {
+            for e in workout.exercises { liveRecords[e.id] = bests(e.exerciseId).records(e) }
+        }
     }
 
     var showsTicks: Bool { mode != .routine }
@@ -127,13 +133,6 @@ final class WorkoutEditor: Identifiable {
         mode == .routine ? "" : app.longNote(e.exerciseId, routineId: workout.routineId)
     }
 
-    func maxPlate(_ exerciseId: UUID) -> Double? {
-        if let hit = plateCache[exerciseId] { return hit }
-        let found = app.maxPlate(exerciseId)
-        plateCache[exerciseId] = .some(found)
-        return found
-    }
-
     func fields(_ ex: Exercise) -> [Field] {
         var f: [Field] = []
         if ex.type.hasKg { f.append(.kg) }
@@ -146,31 +145,34 @@ final class WorkoutEditor: Identifiable {
         return f
     }
 
-    /// The weight's parts: typed, else last time's, else the whole weight as the stack.
-    func load(_ c: Cell) -> Load? {
+    /// The add-on in effect for a set: its own once it has a weight or the add-on was switched, else last time's.
+    func addOn(_ c: Cell) -> Double? {
         guard let s = set(c) else { return nil }
-        if let l = s.load { return l }
-        let p = placeholder(c)
-        if s.kg == nil, let l = p?.load { return l }
-        if let kg = s.kg ?? p?.kg { return Load(base: kg) }
-        return nil
+        if s.kg != nil || s.addOn != nil { return s.addOn }
+        return placeholder(c)?.addOn
     }
 
-    /// Whether `load(c)` is only last time's, not yet this set's.
-    func loadIsPlaceholder(_ c: Cell) -> Bool {
-        guard let s = set(c) else { return true }
-        return s.load == nil && s.kg == nil
+    /// Before last time's records, what this workout has to beat.
+    private func bests(_ exerciseId: UUID) -> Bests {
+        if let hit = bestsCache[exerciseId] { return hit }
+        let b = Records.bests(exerciseId, type: app.byId[exerciseId]?.type ?? .weightReps, in: app.workouts,
+                              excluding: workout.id)
+        bestsCache[exerciseId] = b
+        return b
     }
 
-    func tidySuggestion(_ c: Cell) -> [Double]? {
-        guard let l = load(c), let ex = exercise(entry: c.entry) else { return nil }
-        return Plates.tidy(l.plates, available: app.settings.plates, maxPlate: maxPlate(ex.id))
+    func hasRecord(_ entry: UUID, _ set: UUID) -> Bool {
+        liveRecords[entry]?.contains { $0.setId == set } ?? false
     }
 
     // MARK: Changes
 
     private func write(_ p: Pos, _ s: WorkSet) {
         workout.exercises[p.e].sets[p.s] = s
+        if mode == .live, s.done || liveRecords[workout.exercises[p.e].id] != nil {
+            let e = workout.exercises[p.e]
+            liveRecords[e.id] = bests(e.exerciseId).records(e)
+        }
         changed()
     }
 
@@ -219,6 +221,15 @@ final class WorkoutEditor: Identifiable {
         if focus?.set == set { select(nil) }
         write(p, s)
         doneTick += 1
+        if mode == .live {
+            let e = workout.exercises[p.e]
+            let news = bests(e.exerciseId).news(e, set: set)
+            if !news.isEmpty {
+                banner = RecordBanner(exercise: exercise(e), items: news)
+                recordTick += 1
+            }
+            if !app.demo { Sounds.play(news.isEmpty ? .set : .record) }
+        }
         if mode == .live, let rest = Rest.after(p.s, in: workout.exercises[p.e].sets, settings: app.settings) {
             app.startRest(rest)
         }
@@ -229,7 +240,6 @@ final class WorkoutEditor: Identifiable {
     func select(_ cell: Cell?) {
         focus = cell
         draft = nil
-        typingFrom = nil
         if cell != nil {
             UIApplication.shared.sendAction(#selector(UIResponder.resignFirstResponder), to: nil, from: nil, for: nil)
         }
@@ -239,13 +249,11 @@ final class WorkoutEditor: Identifiable {
     func raw(_ c: Cell) -> String {
         guard let s = set(c) else { return "" }
         switch c.field {
-        case .kg: return s.kg.map { Format.kg($0) } ?? ""
+        case .kg: return s.base.map { Format.kg($0) } ?? ""
         case .reps: return s.reps.map { String($0) } ?? ""
         case .repsR: return s.repsR.map { String($0) } ?? ""
         case .time: return s.seconds.map { Format.digits(fromSeconds: $0) } ?? ""
         case .distance: return s.meters.map { distanceText($0, entry: c.entry) } ?? ""
-        case .stack: return load(c).map { Format.kg($0.base) } ?? ""
-        case .addOn: return load(c).map { Format.kg($0.addOn) } ?? ""
         }
     }
 
@@ -257,24 +265,22 @@ final class WorkoutEditor: Identifiable {
         }
         guard let s = set(c) else { return nil }
         switch c.field {
-        case .kg: return s.kg.map { Format.kg($0) }
+        case .kg: return s.base.map { Format.kg($0) }
         case .reps: return s.reps.map { String($0) }
         case .repsR: return s.repsR.map { String($0) }
         case .time: return s.seconds.map { Format.clock($0) }
         case .distance: return s.meters.map { distanceText($0, entry: c.entry) }
-        case .stack, .addOn: return raw(c)
         }
     }
 
     func placeholderText(_ c: Cell) -> String? {
         guard let p = placeholder(c) else { return nil }
         switch c.field {
-        case .kg: return p.kg.map { Format.kg($0) }
+        case .kg: return p.base.map { Format.kg($0) }
         case .reps: return p.reps.map { String($0) }
         case .repsR: return p.repsR.map { String($0) }
         case .time: return p.seconds.map { Format.clock($0) }
         case .distance: return p.meters.map { distanceText($0, entry: c.entry) }
-        case .stack, .addOn: return nil
         }
     }
 
@@ -285,8 +291,7 @@ final class WorkoutEditor: Identifiable {
     }
 
     func key(_ k: Key) {
-        guard let c = focus, let s = set(c) else { return }
-        if draft == nil { typingFrom = s }
+        guard let c = focus, set(c) != nil else { return }
         let started = draft != nil
         var text = draft ?? ""
         switch k {
@@ -308,28 +313,18 @@ final class WorkoutEditor: Identifiable {
     }
 
     private func apply(_ c: Cell, _ text: String) {
-        guard let p = pos(c.entry, c.set), let ex = exercise(entry: c.entry) else { return }
+        guard let p = pos(c.entry, c.set) else { return }
         var s = workout.exercises[p.e].sets[p.s]
         let number = Double(text)
         switch c.field {
         case .kg:
-            s.kg = number
-            let from = typingFrom?.load ?? (typingFrom?.kg == nil ? placeholder(c)?.load : nil)
-            if ex.load == .plain || number == nil || from == nil {
-                s.load = nil
-            } else if let from, let number {
-                s.load = from.retargeted(to: number, kind: ex.load, available: app.settings.plates,
-                                         maxPlate: maxPlate(ex.id))
-            }
+            let add = addOn(c)
+            s.kg = number.map { $0 + (add ?? 0) }
+            s.addOn = number == nil ? nil : add
         case .reps: s.reps = Int(text)
         case .repsR: s.repsR = Int(text)
         case .time: s.seconds = Format.secondsFromDigits(text)
         case .distance: s.meters = number.map { usesKm(c.entry) ? $0 * 1000 : $0 }
-        case .stack, .addOn:
-            var l = typingFrom.flatMap { $0.load } ?? load(c) ?? Load()
-            if c.field == .stack { l.base = number ?? 0 } else { l.addOn = number ?? 0 }
-            s.load = l
-            s.kg = l.total(ex.load)
         }
         write(p, s)
     }
@@ -338,8 +333,7 @@ final class WorkoutEditor: Identifiable {
         guard let c = focus, let p = pos(c.entry, c.set) else { return }
         let e = workout.exercises[p.e]
         let fs = fields(exercise(e))
-        let field: Field = c.field.isWeight ? .kg : c.field
-        if let i = fs.firstIndex(of: field), i + 1 < fs.count {
+        if let i = fs.firstIndex(of: c.field), i + 1 < fs.count {
             select(Cell(entry: c.entry, set: c.set, field: fs[i + 1]))
         } else if p.s + 1 < e.sets.count, let first = fs.first {
             select(Cell(entry: c.entry, set: e.sets[p.s + 1].id, field: first))
@@ -361,69 +355,27 @@ final class WorkoutEditor: Identifiable {
         write(p, s)
     }
 
-    // MARK: Weight card
+    // MARK: Stack and add-on
 
-    /// Weight and plates from the set above (or its grey value).
-    func sameAsAbove(_ c: Cell) {
-        guard let p = pos(c.entry, c.set), p.s > 0 else { return }
-        let e = workout.exercises[p.e]
-        let ph = placeholders(e)
-        var source: WorkSet?
-        for j in stride(from: p.s - 1, through: 0, by: -1) {
-            if e.sets[j].kg != nil { source = e.sets[j]; break }
-            if let x = ph[j], x.kg != nil { source = x; break }
-        }
-        guard let source else { return }
-        var s = e.sets[p.s]
-        s.kg = source.kg
-        s.load = source.load
-        draft = nil
-        write(p, s)
-    }
-
-    func bump(_ c: Cell, by delta: Double) {
-        guard let p = pos(c.entry, c.set) else { return }
+    /// Picks a stack slot; the add-on stays as it was.
+    func pickSlot(_ slot: Double) {
+        guard let c = focus, let p = pos(c.entry, c.set) else { return }
         var s = workout.exercises[p.e].sets[p.s]
-        let start = s.kg ?? placeholder(c)?.kg ?? 0
-        s.kg = max(0, ((start + delta) * 100).rounded() / 100)
-        s.load = nil
+        let add = addOn(c)
+        s.kg = slot + (add ?? 0)
+        s.addOn = add
         draft = nil
         write(p, s)
     }
 
-    func addPlate(_ c: Cell, _ plate: Double) {
-        guard let p = pos(c.entry, c.set), let ex = exercise(entry: c.entry) else { return }
-        let l = (load(c) ?? Load()).adding(plate)
+    func toggleAddOn() {
+        guard let c = focus, let p = pos(c.entry, c.set), let amount = exercise(entry: c.entry)?.addOn else { return }
         var s = workout.exercises[p.e].sets[p.s]
-        s.load = l
-        s.kg = l.total(ex.load)
+        let base = s.base ?? (s.addOn == nil ? placeholder(c)?.base : nil)
+        s.addOn = addOn(c) == nil ? amount : nil
+        s.kg = base.map { $0 + (s.addOn ?? 0) }
         draft = nil
         write(p, s)
-    }
-
-    func removePlate(_ c: Cell, at index: Int) {
-        guard let p = pos(c.entry, c.set), let ex = exercise(entry: c.entry), let current = load(c) else { return }
-        let l = current.removingPlate(at: index)
-        var s = workout.exercises[p.e].sets[p.s]
-        s.load = l
-        s.kg = l.total(ex.load)
-        draft = nil
-        write(p, s)
-    }
-
-    func tidy(_ c: Cell) {
-        guard let p = pos(c.entry, c.set), let ex = exercise(entry: c.entry), var l = load(c),
-              let plates = tidySuggestion(c) else { return }
-        l.plates = plates
-        var s = workout.exercises[p.e].sets[p.s]
-        s.load = l
-        s.kg = l.total(ex.load)
-        draft = nil
-        write(p, s)
-    }
-
-    func editPart(_ c: Cell, _ field: Field) {
-        select(Cell(entry: c.entry, set: c.set, field: field))
     }
 
     // MARK: Exercises

@@ -8,6 +8,7 @@ enum AppTab: Hashable {
 
 struct WorkoutLink: Hashable { let id: UUID }
 struct ExerciseLink: Hashable { let id: UUID }
+struct WeekLink: Hashable { let start: Date }
 enum ProfileRoute: Hashable { case statistics, exercises, calendar, photos, settings }
 
 @Observable @MainActor
@@ -30,7 +31,6 @@ final class AppModel {
 
     var restEnd: Date?
     var restLength = 0
-    var restDoneTick = 0
     var stopwatchStart: Date?
     var stopwatchBanked: TimeInterval = 0
 
@@ -67,7 +67,8 @@ final class AppModel {
         let store = FileStore(root: root)
         var library = (try? store.load()) ?? Library()
         if demo {
-            library = Demo.library()
+            // -fresh: a new install with nothing logged, to see the empty screens.
+            library = args.contains("-fresh") ? Library(exercises: Catalog.starter()) : Demo.library()
             try? store.save(library)
         } else if store.isNew {
             library.exercises = Catalog.starter()
@@ -114,19 +115,6 @@ final class AppModel {
             if let note = r.exercises.first(where: { $0.exerciseId == exerciseId && !$0.note.isEmpty })?.note { return note }
         }
         return ""
-    }
-
-    /// The biggest plate ever put on this exercise: anything larger probably does not fit.
-    func maxPlate(_ exerciseId: UUID) -> Double? {
-        var best: Double?
-        for w in workouts {
-            for e in w.exercises where e.exerciseId == exerciseId {
-                for s in e.sets {
-                    if let m = s.load?.plates.max(), m > (best ?? 0) { best = m }
-                }
-            }
-        }
-        return best
     }
 
     var recentExerciseIds: [UUID] {
@@ -242,9 +230,12 @@ final class AppModel {
         UNUserNotificationCenter.current().removePendingNotificationRequests(withIdentifiers: ["rest"])
     }
 
-    func restFinished() {
+    /// Chime and buzz, unless the app was away when it ended (the notification already told you).
+    func restFinished(late: Bool) {
         restEnd = nil
-        restDoneTick += 1
+        guard !late, !demo else { return }
+        Sounds.play(.rest)
+        Sounds.buzz()
     }
 
     private func scheduleRestAlert() {
@@ -253,7 +244,7 @@ final class AppModel {
         center.removePendingNotificationRequests(withIdentifiers: ["rest"])
         let content = UNMutableNotificationContent()
         content.title = "Rest over"
-        content.sound = .default
+        content.sound = UNNotificationSound(named: UNNotificationSoundName("rest.wav"))
         let trigger = UNTimeIntervalNotificationTrigger(timeInterval: max(1, end.timeIntervalSinceNow), repeats: false)
         center.add(UNNotificationRequest(identifier: "rest", content: content, trigger: trigger))
     }
@@ -426,7 +417,8 @@ final class NotificationDelegate: NSObject, UNUserNotificationCenterDelegate {
 
     func userNotificationCenter(_ center: UNUserNotificationCenter,
                                 willPresent notification: UNNotification) async -> UNNotificationPresentationOptions {
-        [.sound]
+        // In the app the rest timer chimes and buzzes itself.
+        []
     }
 }
 

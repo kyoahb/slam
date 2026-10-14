@@ -1,163 +1,26 @@
 import SwiftUI
 import SlamCore
 
-/// Opens under a set when its KG is tapped: copy the set above, bump, or build the weight from its parts.
-struct WeightCard: View {
-    @Environment(AppModel.self) private var model
-    @Bindable var editor: WorkoutEditor
-    let cell: Cell
-    let exercise: Exercise
-
-    private var kgCell: Cell { Cell(entry: cell.entry, set: cell.set, field: .kg) }
-
-    private var hasSetAbove: Bool {
-        guard let e = editor.entry(cell.entry), let i = e.sets.firstIndex(where: { $0.id == cell.set }) else { return false }
-        return i > 0
-    }
-
-    var body: some View {
-        VStack(spacing: 8) {
-            HStack(spacing: 6) {
-                Button { editor.sameAsAbove(kgCell) } label: {
-                    Image(systemName: "equal")
-                        .font(.system(size: 17, weight: .bold))
-                        .frame(width: 44, height: 44)
-                        .background(RoundedRectangle(cornerRadius: 10).fill(Theme.control))
-                }
-                .buttonStyle(.plain)
-                .disabled(!hasSetAbove)
-                .opacity(hasSetAbove ? 1 : 0.35)
-                .accessibilityLabel("Same as set above")
-
-                if exercise.load == .plain {
-                    ForEach([-2.5, -1.25, 1.25, 2.5, 5], id: \.self) { d in
-                        Button { editor.bump(kgCell, by: d) } label: {
-                            Text((d > 0 ? "+" : "−") + Format.kg(abs(d)))
-                                .font(.system(size: 15, weight: .semibold))
-                                .monospacedDigit()
-                                .lineLimit(1)
-                                .minimumScaleFactor(0.7)
-                                .frame(maxWidth: .infinity, minHeight: 44)
-                                .background(RoundedRectangle(cornerRadius: 10).fill(Theme.control))
-                        }
-                        .buttonStyle(.plain)
-                    }
-                } else {
-                    parts
-                }
-            }
-            if exercise.load != .plain { plateRow }
-        }
-        .padding(10)
-        .background(RoundedRectangle(cornerRadius: 12).fill(Theme.surface))
-        .padding(.horizontal, 16)
-    }
-
-    private var parts: some View {
-        let load = editor.load(kgCell) ?? Load()
-        let grey = editor.loadIsPlaceholder(kgCell)
-        let pin = exercise.load == .pinMachine
-        return HStack(spacing: 6) {
-            part(pin ? "Stack" : "Bar", Format.kg(load.base), field: .stack, grey: grey)
-            if pin { part("Add-on", Format.kg(load.addOn), field: .addOn, grey: grey) }
-            VStack(alignment: .leading, spacing: 2) {
-                Text(pin ? "Pin" : "Per side").font(.caption2).foregroundStyle(Theme.grey)
-                ScrollView(.horizontal, showsIndicators: false) {
-                    HStack(spacing: 4) {
-                        if load.plates.isEmpty {
-                            Text("–").font(.body.weight(.semibold)).foregroundStyle(Theme.dim)
-                        }
-                        ForEach(Array(load.plates.enumerated()), id: \.offset) { i, p in
-                            Button { editor.removePlate(kgCell, at: i) } label: {
-                                Text(Format.kg(p))
-                                    .font(.system(size: 14, weight: .semibold))
-                                    .monospacedDigit()
-                                    .foregroundStyle(grey ? Theme.grey : .white)
-                                    .padding(.horizontal, 7)
-                                    .frame(height: 24)
-                                    .background(Capsule().fill(Theme.control))
-                            }
-                            .buttonStyle(.plain)
-                        }
-                        if let tidy = editor.tidySuggestion(kgCell) {
-                            Button { editor.tidy(kgCell) } label: {
-                                Text("→ " + tidy.map { Format.kg($0) }.joined(separator: " "))
-                                    .font(.system(size: 14, weight: .semibold))
-                                    .foregroundStyle(.white)
-                                    .padding(.horizontal, 8)
-                                    .frame(height: 24)
-                                    .background(Capsule().fill(Theme.blue))
-                            }
-                            .buttonStyle(.plain)
-                            .accessibilityLabel("Fewer plates")
-                        }
-                    }
-                }
-            }
-            .padding(.horizontal, 8)
-            .frame(maxWidth: .infinity, minHeight: 44, alignment: .leading)
-            .background(RoundedRectangle(cornerRadius: 10).fill(Theme.bg))
-        }
-    }
-
-    private func part(_ title: String, _ value: String, field: Field, grey: Bool) -> some View {
-        let focused = editor.focus?.field == field
-        let typed = focused ? editor.text(Cell(entry: cell.entry, set: cell.set, field: field)) : nil
-        return Button { editor.editPart(kgCell, field) } label: {
-            VStack(spacing: 1) {
-                Text(title).font(.caption2).foregroundStyle(Theme.grey)
-                Text(typed ?? value)
-                    .font(.system(size: 16, weight: .semibold))
-                    .monospacedDigit()
-                    .foregroundStyle(grey && !focused ? Theme.grey : .white)
-            }
-            .frame(minWidth: 54, minHeight: 44)
-            .padding(.horizontal, 2)
-            .background(RoundedRectangle(cornerRadius: 10).fill(focused ? Theme.control : Theme.bg))
-        }
-        .buttonStyle(.plain)
-    }
-
-    private var plateRow: some View {
-        let biggest = editor.maxPlate(exercise.id)
-        return HStack(spacing: 5) {
-            ForEach(model.settings.plates.sorted(), id: \.self) { p in
-                let awkward = biggest.map { p > $0 } ?? false
-                Button { editor.addPlate(kgCell, p) } label: {
-                    Text("+" + Format.kg(p))
-                        .font(.system(size: 14, weight: .semibold))
-                        .monospacedDigit()
-                        .lineLimit(1)
-                        .minimumScaleFactor(0.7)
-                        .foregroundStyle(awkward ? Theme.grey : .white)
-                        .frame(maxWidth: .infinity, minHeight: 38)
-                        .background(RoundedRectangle(cornerRadius: 9).fill(Theme.control))
-                }
-                .buttonStyle(.plain)
-            }
-        }
-    }
-}
-
+/// Digits, or the machine's stack slots for its weight. RIR sits on top for reps, the add-on switch for weight.
 struct Keypad: View {
     @Bindable var editor: WorkoutEditor
 
+    static let keyColor = Color(hex: 0x2C2C2E)
+
     var body: some View {
+        let f = editor.focus
+        let ex = f.flatMap { editor.exercise(entry: $0.entry) }
         VStack(spacing: 6) {
-            if let f = editor.focus, f.field == .reps || f.field == .repsR, editor.set(f)?.kind != .warmup {
+            if let f, f.field == .reps || f.field == .repsR, editor.set(f)?.kind != .warmup {
                 rirBar(f)
+            } else if let f, f.field == .kg, let amount = ex?.addOn {
+                addOnBar(f, amount)
             }
             HStack(spacing: 6) {
-                VStack(spacing: 6) {
-                    digits([1, 2, 3])
-                    digits([4, 5, 6])
-                    digits([7, 8, 9])
-                    HStack(spacing: 6) {
-                        key(Text(".")) { editor.key(.dot) }
-                            .disabled(!(editor.focus?.field.allowsDot ?? false))
-                        key(Text("0")) { editor.key(.digit(0)) }
-                        key(Image(systemName: "delete.left")) { editor.key(.back) }
-                    }
+                if let f, f.field == .kg, let stack = ex?.stack, !stack.isEmpty {
+                    slots(f, stack)
+                } else {
+                    digits
                 }
                 VStack(spacing: 6) {
                     key(Image(systemName: "keyboard.chevron.compact.down")) { editor.select(nil) }
@@ -180,7 +43,21 @@ struct Keypad: View {
         .background(Theme.keypad.ignoresSafeArea(edges: .bottom))
     }
 
-    private func digits(_ list: [Int]) -> some View {
+    private var digits: some View {
+        VStack(spacing: 6) {
+            row([1, 2, 3])
+            row([4, 5, 6])
+            row([7, 8, 9])
+            HStack(spacing: 6) {
+                key(Text(".")) { editor.key(.dot) }
+                    .disabled(!(editor.focus?.field.allowsDot ?? false))
+                key(Text("0")) { editor.key(.digit(0)) }
+                key(Image(systemName: "delete.left")) { editor.key(.back) }
+            }
+        }
+    }
+
+    private func row(_ list: [Int]) -> some View {
         HStack(spacing: 6) {
             ForEach(list, id: \.self) { d in
                 key(Text(String(d))) { editor.key(.digit(d)) }
@@ -194,7 +71,66 @@ struct Keypad: View {
                 .font(.system(size: 22, weight: .medium))
                 .foregroundStyle(.white)
                 .frame(maxWidth: .infinity, maxHeight: .infinity)
-                .background(RoundedRectangle(cornerRadius: 8).fill(Color(hex: 0x2C2C2E)))
+                .background(RoundedRectangle(cornerRadius: 8).fill(Self.keyColor))
+        }
+        .buttonStyle(.plain)
+    }
+
+    /// The stack's slots: the picked one filled, last time's outlined.
+    private func slots(_ f: Cell, _ stack: [Double]) -> some View {
+        let own = editor.set(f)?.base
+        let last = own == nil ? editor.placeholder(f)?.base : nil
+        func same(_ a: Double?, _ b: Double) -> Bool { a.map { abs($0 - b) < 0.01 } ?? false }
+        return ScrollViewReader { proxy in
+            ScrollView(showsIndicators: false) {
+                LazyVGrid(columns: Array(repeating: GridItem(.flexible(), spacing: 6), count: 4), spacing: 6) {
+                    ForEach(stack, id: \.self) { v in
+                        Button { editor.pickSlot(v) } label: {
+                            Text(Format.kg(v))
+                                .font(.system(size: 20, weight: .medium))
+                                .monospacedDigit()
+                                .foregroundStyle(.white)
+                                .frame(maxWidth: .infinity, minHeight: 46)
+                                .background(RoundedRectangle(cornerRadius: 8).fill(same(own, v) ? Theme.blue : Self.keyColor))
+                                .overlay {
+                                    if same(last, v) { RoundedRectangle(cornerRadius: 8).strokeBorder(Theme.blue, lineWidth: 2) }
+                                }
+                        }
+                        .buttonStyle(.plain)
+                        .id(v)
+                    }
+                }
+            }
+            .onAppear { scroll(proxy, stack, to: own ?? last) }
+            .onChange(of: f) { scroll(proxy, stack, to: editor.set(f)?.base ?? editor.placeholder(f)?.base) }
+        }
+    }
+
+    private func scroll(_ proxy: ScrollViewProxy, _ stack: [Double], to value: Double?) {
+        guard let value, let slot = stack.min(by: { abs($0 - value) < abs($1 - value) }) else { return }
+        proxy.scrollTo(slot, anchor: .center)
+    }
+
+    private func addOnBar(_ f: Cell, _ amount: Double) -> some View {
+        let on = editor.addOn(f) != nil
+        return HStack(spacing: 6) {
+            Text("Add-on")
+                .font(.system(size: 13, weight: .bold))
+                .foregroundStyle(Theme.blue)
+                .frame(width: 56)
+            segment("+0", selected: !on) { if on { editor.toggleAddOn() } }
+            segment("+" + Format.kg(amount) + " kg", selected: on) { if !on { editor.toggleAddOn() } }
+        }
+    }
+
+    private func segment(_ title: String, selected: Bool, action: @escaping () -> Void) -> some View {
+        Button(action: action) {
+            Text(title)
+                .font(.system(size: 16, weight: .semibold))
+                .monospacedDigit()
+                .foregroundStyle(.white)
+                .frame(maxWidth: .infinity, minHeight: 36)
+                .background(RoundedRectangle(cornerRadius: 8).fill(selected ? Theme.blue : Self.keyColor))
         }
         .buttonStyle(.plain)
     }
@@ -212,7 +148,7 @@ struct Keypad: View {
                         .font(.system(size: 16, weight: .semibold))
                         .foregroundStyle(current == v ? .black : .white)
                         .frame(maxWidth: .infinity, minHeight: 36)
-                        .background(RoundedRectangle(cornerRadius: 8).fill(current == v ? Theme.rir : Color(hex: 0x2C2C2E)))
+                        .background(RoundedRectangle(cornerRadius: 8).fill(current == v ? Theme.rir : Self.keyColor))
                 }
                 .buttonStyle(.plain)
             }

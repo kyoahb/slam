@@ -66,6 +66,10 @@ struct WorkoutDetailView: View {
         .navigationBarTitleDisplayMode(.inline)
         .toolbar {
             ToolbarItem(placement: .topBarTrailing) {
+                ShareLink(item: ShareText.workout(w, model)) { Image(systemName: "square.and.arrow.up") }
+                    .accessibilityLabel("Share workout")
+            }
+            ToolbarItem(placement: .topBarTrailing) {
                 Menu {
                     Button("Edit Workout", systemImage: "pencil") {
                         editing = WorkoutEditor(workout: w, mode: .past, app: model)

@@ -24,15 +24,19 @@ public enum Demo {
         let pad = Configurable(name: "Pad"), lever = Configurable(name: "Lever")
         let incline = Configurable(name: "Incline", perWorkout: true), level = Configurable(name: "Level", perWorkout: true)
 
-        let legExt = Exercise(name: "Precor Leg Extension", primary: .quadriceps, unilateral: true, load: .pinMachine,
-                              brand: "Precor", settings: [seat, large, small])
-        let legCurl = Exercise(name: "Precor Prone Leg Curl Bilateral", primary: .hamstrings, load: .pinMachine,
-                               brand: "Precor", settings: [pad, lever])
-        let calf = Exercise(name: "Precor Leg Press - Calf Extension", primary: .calves, load: .pinMachine, brand: "Precor")
-        let crunch = Exercise(name: "Cable Crunch", equipment: .cable, primary: .abdominals)
-        let row = Exercise(name: "Precor T Bar Row - Row", primary: .upperBack, load: .plateLoaded, brand: "Precor")
-        let shrug = Exercise(name: "Precor T Bar Row - Kelso Shrug", primary: .traps, load: .plateLoaded, brand: "Precor")
-        let chest = Exercise(name: "Matrix Chest Press", primary: .chest, load: .pinMachine, brand: "Matrix")
+        let legExt = Exercise(name: "Precor Leg Extension", primary: .quadriceps, unilateral: true,
+                              stack: Exercise.slots(from: 4, step: 7, to: 109), addOn: 2, brand: "Precor",
+                              settings: [seat, large, small])
+        let legCurl = Exercise(name: "Precor Prone Leg Curl Bilateral", primary: .hamstrings,
+                               stack: Exercise.slots(from: 7, step: 7, to: 105), addOn: 2, brand: "Precor", settings: [pad, lever])
+        let calf = Exercise(name: "Precor Leg Press - Calf Extension", primary: .calves,
+                            stack: Exercise.slots(from: 10, step: 5, to: 150), brand: "Precor")
+        let crunch = Exercise(name: "Cable Crunch", equipment: .cable, primary: .abdominals,
+                              stack: Exercise.slots(from: 5, step: 5, to: 80))
+        let row = Exercise(name: "Precor T Bar Row - Row", primary: .upperBack, brand: "Precor")
+        let shrug = Exercise(name: "Precor T Bar Row - Kelso Shrug", primary: .traps, brand: "Precor")
+        let chest = Exercise(name: "Matrix Chest Press", primary: .chest, stack: Exercise.slots(from: 5, step: 5, to: 100),
+                             addOn: 2.5, brand: "Matrix")
         let lateral = Exercise(name: "Lateral Raise (Dumbbell)", equipment: .dumbbell, primary: .shoulders, unilateral: true)
         let elliptical = Exercise(name: "Precor Elliptical", type: .distanceDuration, equipment: .cardio, primary: .cardio,
                                   brand: "Precor", settings: [incline, level])
@@ -71,14 +75,17 @@ public enum Demo {
         ])
         let routines = [a, b, c, d]
 
-        func pinLoad(_ target: Double) -> Load {
-            let stack = [74.0, 81, 88, 95, 102, 109].last(where: { $0 <= target }) ?? 74
-            var rest = target - stack
-            let addOn: Double = rest >= 2 ? 2 : 0
-            rest -= addOn
-            let pin = Plates.closest(rest, from: [1.25, 2.5, 5])
-            return Load(base: stack, addOn: addOn, plates: pin)
+        /// The heaviest slot at or under the target, with the add-on when it still fits.
+        func weight(_ e: Exercise, _ target: Double) -> (kg: Double, addOn: Double?) {
+            guard let first = e.stack.first else { return ((target / 1.25).rounded() * 1.25, nil) }
+            let slot = e.stack.last(where: { $0 <= target }) ?? first
+            if let a = e.addOn, target - slot >= a { return (slot + a, a) }
+            return (slot, nil)
         }
+
+        let tops: [UUID: (Double, Double)] = [legExt.id: (80, 31), legCurl.id: (70, 25), calf.id: (100, 45),
+                                               crunch.id: (30, 15), row.id: (40, 20), shrug.id: (60, 30),
+                                               chest.id: (60, 22), lateral.id: (10, 4)]
 
         func sets(_ e: Exercise, _ kinds: [SetKind], progress p: Double) -> [WorkSet] {
             var out: [WorkSet] = []
@@ -86,23 +93,12 @@ public enum Demo {
                 var s = WorkSet(kind: kind, done: true)
                 let reps = kind == .warmup ? 10 : kind == .drop ? rng.int(6...9) : rng.int(7...11) - i / 2
                 let rir: Int? = kind == .warmup ? nil : rng.chance(0.8) ? rng.int(0...2) : nil
-                switch e.load {
-                case .pinMachine:
-                    let top = (e.id == legExt.id ? 90 + 28.5 * p : e.id == chest.id ? 60 + 22 * p : 74 + 30 * p)
+                if e.type.hasKg, let t = tops[e.id] {
+                    let top = t.0 + t.1 * p
                     let target = kind == .warmup ? top * 0.55 : kind == .drop ? top * 0.7 : top - Double(rng.int(0...1)) * 2.5
-                    let load = pinLoad(target)
-                    s.load = load
-                    s.kg = load.total(.pinMachine)
-                case .plateLoaded:
-                    let top = (e.id == row.id ? 40 + 20 * p : 60 + 30 * p)
-                    let perSide = Plates.closest((kind == .warmup ? top * 0.5 : top) / 2, from: Plates.standard)
-                    s.load = Load(plates: perSide)
-                    s.kg = s.load?.total(.plateLoaded)
-                case .plain:
-                    if e.type.hasKg {
-                        let top = e.id == lateral.id ? 10 + 4 * p : 30 + 15 * p
-                        s.kg = ((top) / 1.25).rounded() * 1.25
-                    }
+                    let w = weight(e, target)
+                    s.kg = w.kg
+                    s.addOn = w.addOn
                 }
                 if e.type.hasReps {
                     s.reps = reps
@@ -142,9 +138,6 @@ public enum Demo {
                     var e = WorkoutExercise(exerciseId: ex.id, settings: r.settings,
                                             sets: sets(ex, r.sets.map(\.kind), progress: p))
                     e.note = shortNotes[rng.int(0...shortNotes.count - 1)]
-                    if ex.id == legExt.id, let l = e.sets.first(where: { $0.kind == .normal })?.load {
-                        e.note = "\(Format.kg(l.base)) + \(Format.kg(l.addOn)) + (\(l.plates.map(Format.kg).joined(separator: " ")))gp"
-                    }
                     if ex.id == elliptical.id {
                         e[setting: incline.id] = String(rng.int(4...8))
                         e[setting: level.id] = String(rng.int(8...12))
@@ -165,8 +158,8 @@ public enum Demo {
             active.exercises[0].sets[0] = active.exercises[0].sets[0].filled(from: prev[0])
             active.exercises[0].sets[0].done = true
             var s1 = active.exercises[0].sets[1]
-            s1.load = Load(base: 109, addOn: 2, plates: [5, 2.5])
-            s1.kg = 118.5
+            s1.kg = 111
+            s1.addOn = 2
             s1.reps = 8; s1.rir = 1; s1.repsR = 7; s1.rirR = 0
             s1.done = true
             active.exercises[0].sets[1] = s1

@@ -121,8 +121,8 @@ struct SetTable: View {
                 Text("SET").frame(width: 40)
                 if type.hasKg { Text("KG").frame(maxWidth: .infinity) }
                 if type.hasReps {
-                    Text(two ? "LEFT" : "REPS").frame(maxWidth: .infinity)
-                    if two { Text("RIGHT").frame(maxWidth: .infinity) }
+                    RepsHeader(title: two ? "LEFT" : "REPS")
+                    if two { RepsHeader(title: "RIGHT") }
                 }
                 if type.hasDistance { Text(type == .distanceDuration ? "KM" : "M").frame(maxWidth: .infinity) }
                 if type.hasTime { Text("TIME").frame(maxWidth: .infinity) }
@@ -137,11 +137,6 @@ struct SetTable: View {
                 SetRow(editor: editor, entry: entry, exercise: exercise, set: set, label: labels[i],
                        placeholder: placeholders[i])
                     .id(set.id)
-                if let f = editor.focus, f.set == set.id, f.field.isWeight, exercise.type.hasKg {
-                    WeightCard(editor: editor, cell: Cell(entry: entry.id, set: set.id, field: f.field), exercise: exercise)
-                        .padding(.vertical, 6)
-                        .transition(.opacity)
-                }
             }
         }
     }
@@ -170,8 +165,17 @@ struct SetRow: View {
                     .font(.body.weight(.semibold))
                     .foregroundStyle(Theme.kindColor(set.kind))
                     .frame(width: 40, height: 40)
+                    .overlay(alignment: .topTrailing) {
+                        if editor.hasRecord(entry.id, set.id) {
+                            Image(systemName: "medal.fill")
+                                .font(.system(size: 11))
+                                .foregroundStyle(Theme.medal)
+                                .transition(.scale.combined(with: .opacity))
+                        }
+                    }
                     .contentShape(Rectangle())
             }
+            .animation(.spring(duration: 0.35, bounce: 0.5), value: editor.hasRecord(entry.id, set.id))
             if type.hasKg { valueCell(.kg) }
             if type.hasReps {
                 repsCell(.reps, tone: two ? Theme.left : .clear)
@@ -198,26 +202,35 @@ struct SetRow: View {
 
     private func cell(_ field: Field) -> Cell { Cell(entry: entry.id, set: set.id, field: field) }
 
+    /// A value; the weight also shows its add-on ("109 +2") when it is switched on.
     private func valueCell(_ field: Field) -> some View {
         let c = cell(field)
-        let focused = editor.focus == c || (field == .kg && editor.focus.map { $0.set == set.id && $0.field.isWeight } == true)
+        let focused = editor.focus == c
         let typed = editor.text(c)
         let shown = typed ?? editor.placeholderText(c) ?? "–"
+        let add = field == .kg && exercise.addOn != nil ? editor.addOn(c) : nil
         return Button { editor.select(c) } label: {
-            Text(shown.isEmpty ? " " : shown)
-                .font(.system(size: 17, weight: .semibold))
-                .monospacedDigit()
-                .foregroundStyle(typed == nil ? Theme.dim : .white)
-                .lineLimit(1)
-                .minimumScaleFactor(0.7)
-                .frame(maxWidth: .infinity, minHeight: 36)
-                .background(RoundedRectangle(cornerRadius: 8).fill(focused ? Theme.control : .clear))
-                .contentShape(Rectangle())
+            HStack(alignment: .firstTextBaseline, spacing: 3) {
+                Text(shown.isEmpty ? " " : shown)
+                    .font(.system(size: 17, weight: .semibold))
+                    .foregroundStyle(typed == nil ? Theme.dim : .white)
+                if let add {
+                    Text("+" + Format.kg(add))
+                        .font(.system(size: 12, weight: .bold))
+                        .foregroundStyle(typed == nil ? Theme.blue.opacity(0.5) : Theme.blue)
+                }
+            }
+            .monospacedDigit()
+            .lineLimit(1)
+            .minimumScaleFactor(0.7)
+            .frame(maxWidth: .infinity, minHeight: 36)
+            .background(RoundedRectangle(cornerRadius: 8).fill(focused ? Theme.control : .clear))
+            .contentShape(Rectangle())
         }
         .buttonStyle(.plain)
     }
 
-    /// Reps with RIR sitting just above in its own colour.
+    /// Reps, then RIR in its own colour, split by a thin line. Warm-ups have no RIR.
     private func repsCell(_ field: Field, tone: Color) -> some View {
         let c = cell(field)
         let focused = editor.focus == c
@@ -225,17 +238,9 @@ struct SetRow: View {
         let reps = typed ?? editor.placeholderText(c) ?? "–"
         let rir = field == .repsR ? set.rirR : set.rir
         let rirPlaceholder = field == .repsR ? placeholder?.rirR : placeholder?.rir
-        let rirShown = set.kind == .warmup ? nil : (rir ?? rirPlaceholder)
         return Button { editor.select(c) } label: {
-            VStack(spacing: -1) {
-                Text(rirShown.map { String($0) } ?? " ")
-                    .font(.system(size: 11, weight: .bold))
-                    .foregroundStyle(rir == nil ? Theme.rir.opacity(0.45) : Theme.rir)
-                Text(reps.isEmpty ? " " : reps)
-                    .font(.system(size: 17, weight: .semibold))
-                    .monospacedDigit()
-                    .foregroundStyle(typed == nil ? Theme.dim : .white)
-            }
+            RepsSplit(reps: reps.isEmpty ? " " : reps, rir: set.kind == .warmup ? nil : .some(rir ?? rirPlaceholder),
+                      repsDim: typed == nil, rirDim: rir == nil, size: 17)
             .frame(maxWidth: .infinity, minHeight: 36)
             .background(RoundedRectangle(cornerRadius: 8).fill(focused ? Theme.control : tone))
             .contentShape(Rectangle())

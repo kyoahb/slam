@@ -1,7 +1,7 @@
 import SwiftUI
 import SlamCore
 
-/// Screenshot mode (`-demo -screen name`): made-up history, two photos, then the named screen.
+/// Screenshot mode (`-demo -screen name`, `-fresh` for an empty install): made-up history, two photos, then the named screen.
 extension AppModel {
     func prepareDemo(_ args: [String]) {
         addDemoPhotos()
@@ -20,6 +20,27 @@ extension AppModel {
             showWorkout = true
             if let editor, let entry = editor.workout.exercises.first, entry.sets.count > 2 {
                 editor.select(Cell(entry: entry.id, set: entry.sets[2].id, field: screen == "weight" ? .kg : .reps))
+            }
+        case "record":
+            showWorkout = true
+            // Tick set 3 of the first exercise heavier than ever: the record banner drops in.
+            if let editor, let entry = editor.workout.exercises.first, entry.sets.count > 2,
+               let top = byId[entry.exerciseId]?.stack.last {
+                let kg = Cell(entry: entry.id, set: entry.sets[2].id, field: .kg)
+                editor.select(kg)
+                editor.pickSlot(top)
+                if editor.addOn(kg) == nil { editor.toggleAddOn() }
+                editor.select(Cell(entry: entry.id, set: entry.sets[2].id, field: .reps))
+                editor.key(.digit(1))
+                editor.key(.digit(2))
+                editor.select(nil)
+                editor.toggleDone(entry.id, entry.sets[2].id)
+                skipRest()
+            }
+        case "form":
+            showWorkout = true
+            if let editor, let entry = editor.workout.exercises.first {
+                editor.editingExercise = ExerciseLink(id: entry.exerciseId)
             }
         case "rest":
             showWorkout = true
@@ -46,9 +67,15 @@ extension AppModel {
             let routes: [String: ProfileRoute] = ["stats": .statistics, "exercises": .exercises, "calendar": .calendar,
                                                   "photos": .photos, "settings": .settings]
             if let r = routes[screen] { profilePath.append(r) }
+        case "volume":
+            tab = .profile
+            profilePath.append(ProfileRoute.statistics)
+            profilePath.append(StatsRoute.volume)
         case "exercise":
             tab = .profile
-            if let e = exercises.first(where: { $0.name == "Precor Leg Extension" }) { profilePath.append(ExerciseLink(id: e.id)) }
+            if let e = exercises.first(where: { $0.name == "Precor Leg Extension" }) ?? exercises.first {
+                profilePath.append(ExerciseLink(id: e.id))
+            }
         default:
             break
         }

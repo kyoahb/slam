@@ -46,25 +46,31 @@ jobs:
           grep -cE "warning:" build/build.log || true
 
       - name: Screenshots
+        env:
+          SCREENS: routines workout weight reps record rest save picker form routine history detail profile stats volume exercises exercise calendar photos settings
+          FRESH: history profile stats volume calendar exercise
         run: |
           mkdir -p shots
+          # One launch per screen; wait for a frame that is not black and has stopped changing.
+          snap() {
+            id=$1; f=$2; shift 2
+            xcrun simctl launch --terminate-running-process "$id" com.kyoahb.slam -demo "$@" > /dev/null
+            prev=0
+            for _ in $(seq 20); do
+              sleep 1.5
+              xcrun simctl io "$id" screenshot "$f" > /dev/null 2>&1
+              size=$(stat -f %z "$f")
+              [ "$size" -gt 65000 ] && [ $(( (size - prev) * (size - prev) * 2500 )) -lt $(( size * size )) ] && break
+              prev=$size
+            done
+          }
           shoot() {
             id=$1; dev=$2
             xcrun simctl bootstatus "$id" -b > /dev/null
             xcrun simctl status_bar "$id" override --time 9:41 --batteryState charged --batteryLevel 100 --wifiBars 3 --cellularMode notSupported
             xcrun simctl install "$id" build/dd/Build/Products/Debug-iphonesimulator/Slam.app
-            for s in routines workout weight reps rest save picker routine history detail profile stats exercises exercise calendar photos settings; do
-              xcrun simctl launch --terminate-running-process "$id" com.kyoahb.slam -demo -screen "$s" > /dev/null
-              f="shots/$dev-$s.png"; prev=0
-              # Wait for a frame that is not black (about 50 KB) and has stopped changing.
-              for _ in $(seq 20); do
-                sleep 1.5
-                xcrun simctl io "$id" screenshot "$f" > /dev/null 2>&1
-                size=$(stat -f %z "$f")
-                [ "$size" -gt 90000 ] && [ $(( (size - prev) * (size - prev) * 2500 )) -lt $(( size * size )) ] && break
-                prev=$size
-              done
-            done
+            for s in $SCREENS; do snap "$id" "shots/$dev-$s.png" -screen "$s"; done
+            for s in $FRESH; do snap "$id" "shots/$dev-fresh-$s.png" -fresh -screen "$s"; done
           }
           pids=()
           while read -r id dev; do shoot "$id" "$dev" & pids+=($!); done < build/sims

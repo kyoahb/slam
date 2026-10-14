@@ -90,7 +90,20 @@ struct ActiveWorkoutView: View {
             }
             .editorSheets(editor)
         }
-        .sensoryFeedback(.impact(weight: .light), trigger: editor.doneTick)
+        .overlay(alignment: .top) {
+            if let banner = editor.banner {
+                RecordBannerView(banner: banner)
+                    .onTapGesture { editor.banner = nil }
+                    .transition(.move(edge: .top).combined(with: .opacity))
+                    .task(id: banner.id) {
+                        try? await Task.sleep(for: .seconds(model.demo ? 600 : 4))
+                        if editor.banner?.id == banner.id { editor.banner = nil }
+                    }
+            }
+        }
+        .animation(.spring(duration: 0.45, bounce: 0.25), value: editor.banner?.id)
+        .sensoryFeedback(.impact(weight: .medium), trigger: editor.doneTick)
+        .sensoryFeedback(.success, trigger: editor.recordTick)
     }
 
     private var header: some View {

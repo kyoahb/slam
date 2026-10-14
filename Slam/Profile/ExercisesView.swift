@@ -126,14 +126,14 @@ struct ExerciseDetailView: View {
         let gyms = Array(Set(points.map { gymName($0.gymId) })).sorted()
         return VStack(alignment: .leading, spacing: 12) {
             HStack(alignment: .top) {
-                VStack(alignment: .leading, spacing: 2) {
-                    Text(focus.map { value($0.value, m) } ?? "–")
-                        .font(.title3.weight(.semibold))
-                        .monospacedDigit()
-                    Text(focus.map { $0.date.formatted(.dateTime.day().month(.abbreviated).year()) + " · " + gymName($0.gymId) } ?? "Not done yet")
-                        .font(.footnote)
-                        .foregroundStyle(Theme.grey)
-                        .lineLimit(1)
+                if let focus {
+                    NavigationLink(value: WorkoutLink(id: focus.workoutId)) {
+                        ChartHeader(value: value(focus.value, m),
+                                    detail: focus.date.formatted(.dateTime.day().month(.abbreviated).year()) + " · " + gymName(focus.gymId))
+                    }
+                    .buttonStyle(.plain)
+                } else {
+                    ChartHeader(value: "–", detail: range == .all ? "Not done yet" : "Not done in this time", opens: false)
                 }
                 Spacer()
                 Menu {
@@ -146,36 +146,50 @@ struct ExerciseDetailView: View {
                         .font(.subheadline.weight(.semibold))
                 }
             }
-            Chart {
-                ForEach(points) { p in
-                    LineMark(x: .value("Date", p.date), y: .value(m.title, p.value))
-                        .foregroundStyle(Theme.blue.opacity(0.5))
-                        .interpolationMethod(.monotone)
-                }
-                ForEach(points) { p in
-                    PointMark(x: .value("Date", p.date), y: .value(m.title, p.value))
-                        .foregroundStyle(by: .value("Gym", gymName(p.gymId)))
-                        .symbolSize(p.id == focus?.id ? 90 : 36)
-                }
+            if points.isEmpty {
+                EmptyStats(title: "No sessions to show", icon: "chart.xyaxis.line")
+                    .frame(height: 200)
+                    .background(RoundedRectangle(cornerRadius: 12).fill(Theme.surface))
+            } else {
+                plot(points, focus, gyms, m)
             }
-            .chartForegroundStyleScale(domain: gyms, range: gyms.indices.map { Self.gymColors[$0 % Self.gymColors.count] })
-            .chartLegend(gyms.count > 1 ? .visible : .hidden)
-            .chartXSelection(value: $selected)
-            .chartYScale(domain: .automatic(includesZero: false))
-            .chartXAxis {
-                AxisMarks { _ in
-                    AxisGridLine().foregroundStyle(Theme.line)
-                    AxisValueLabel(format: .dateTime.month(.abbreviated))
-                }
-            }
-            .chartYAxis {
-                AxisMarks(position: .trailing) { _ in
-                    AxisGridLine().foregroundStyle(Theme.line)
-                    AxisValueLabel()
-                }
-            }
-            .frame(height: 200)
         }
+    }
+
+    private func plot(_ points: [Point], _ focus: Point?, _ gyms: [String], _ m: Metric) -> some View {
+        Chart {
+            if selected != nil, let focus {
+                RuleMark(x: .value("Date", focus.date)).foregroundStyle(Theme.control)
+            }
+            ForEach(points) { p in
+                LineMark(x: .value("Date", p.date), y: .value(m.title, p.value))
+                    .foregroundStyle(Theme.blue.opacity(0.5))
+                    .interpolationMethod(.monotone)
+            }
+            ForEach(points) { p in
+                PointMark(x: .value("Date", p.date), y: .value(m.title, p.value))
+                    .foregroundStyle(by: .value("Gym", gymName(p.gymId)))
+                    .symbolSize(p.id == focus?.id ? 90 : 36)
+            }
+        }
+        .chartForegroundStyleScale(domain: gyms, range: gyms.indices.map { Self.gymColors[$0 % Self.gymColors.count] })
+        .chartLegend(gyms.count > 1 ? .visible : .hidden)
+        .chartXSelection(value: $selected)
+        .chartGesture { proxy in SpatialTapGesture().onEnded { proxy.selectXValue(at: $0.location.x) } }
+        .chartYScale(domain: .automatic(includesZero: false))
+        .chartXAxis {
+            AxisMarks { _ in
+                AxisGridLine().foregroundStyle(Theme.line)
+                AxisValueLabel(format: .dateTime.month(.abbreviated))
+            }
+        }
+        .chartYAxis {
+            AxisMarks(position: .trailing) { _ in
+                AxisGridLine().foregroundStyle(Theme.line)
+                AxisValueLabel()
+            }
+        }
+        .frame(height: 200)
     }
 
     static let gymColors: [Color] = [Theme.blue, Theme.warm, Theme.green, Theme.rir, Theme.red]
@@ -288,10 +302,16 @@ struct ExerciseDetailView: View {
 }
 
 enum SetText {
-    /// "118.5 kg × 8", "118.5 kg × 8 L 7 R", "2.4 km · 12:30"
-    static func describe(_ s: WorkSet, _ ex: Exercise) -> String {
+    /// "111 kg × 8", "111 kg × 8 L 7 R", "2.4 km · 12:30". `split` shows the add-on apart: "109+2 kg".
+    static func describe(_ s: WorkSet, _ ex: Exercise, split: Bool = false) -> String {
         var parts: [String] = []
-        if ex.type.hasKg, let kg = s.kg { parts.append(Format.kg(kg) + " kg") }
+        if ex.type.hasKg, let kg = s.kg {
+            if split, let add = s.addOn, let base = s.base {
+                parts.append(Format.kg(base) + "+" + Format.kg(add) + " kg")
+            } else {
+                parts.append(Format.kg(kg) + " kg")
+            }
+        }
         if ex.type.hasReps {
             parts.append(ex.unilateral ? "\(s.reps ?? 0) L \(s.repsR ?? 0) R" : String(s.reps ?? 0))
         }

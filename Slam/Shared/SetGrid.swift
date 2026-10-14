@@ -18,8 +18,8 @@ struct SetGrid: View {
                 Text("SET").frame(width: 40)
                 if type.hasKg { Text("KG").frame(maxWidth: .infinity) }
                 if type.hasReps {
-                    Text(two ? "LEFT" : "REPS").frame(maxWidth: .infinity)
-                    if two { Text("RIGHT").frame(maxWidth: .infinity) }
+                    RepsHeader(title: two ? "LEFT" : "REPS")
+                    if two { RepsHeader(title: "RIGHT") }
                 }
                 if type.hasDistance { Text(type == .distanceDuration ? "KM" : "M").frame(maxWidth: .infinity) }
                 if type.hasTime { Text("TIME").frame(maxWidth: .infinity) }
@@ -34,10 +34,10 @@ struct SetGrid: View {
                         .font(.body.weight(.semibold))
                         .foregroundStyle(Theme.kindColor(s.kind))
                         .frame(width: 40)
-                    if type.hasKg { value(s.kg.map { Format.kg($0) }) }
+                    if type.hasKg { value(s.base.map { Format.kg($0) }, add: s.addOn) }
                     if type.hasReps {
-                        reps(s.reps, s.kind == .warmup ? nil : s.rir, tone: two ? Theme.left : .clear)
-                        if two { reps(s.repsR, s.kind == .warmup ? nil : s.rirR, tone: Theme.right) }
+                        reps(s.reps, s.rir, warm: s.kind == .warmup, tone: two ? Theme.left : .clear)
+                        if two { reps(s.repsR, s.rirR, warm: s.kind == .warmup, tone: Theme.right) }
                     }
                     if type.hasDistance {
                         value(s.meters.map { type == .distanceDuration ? Format.km($0) : Format.kg($0) })
@@ -54,24 +54,61 @@ struct SetGrid: View {
         }
     }
 
-    private func value(_ text: String?) -> some View {
-        Text(text ?? "–")
-            .font(.system(size: 16, weight: .semibold))
-            .monospacedDigit()
-            .frame(maxWidth: .infinity)
+    private func value(_ text: String?, add: Double? = nil) -> some View {
+        HStack(alignment: .firstTextBaseline, spacing: 3) {
+            Text(text ?? "–").font(.system(size: 16, weight: .semibold))
+            if let add {
+                Text("+" + Format.kg(add)).font(.system(size: 12, weight: .bold)).foregroundStyle(Theme.blue)
+            }
+        }
+        .monospacedDigit()
+        .lineLimit(1)
+        .minimumScaleFactor(0.7)
+        .frame(maxWidth: .infinity)
     }
 
-    private func reps(_ reps: Int?, _ rir: Int?, tone: Color) -> some View {
-        VStack(spacing: -1) {
-            Text(rir.map { String($0) } ?? " ")
-                .font(.system(size: 11, weight: .bold))
-                .foregroundStyle(Theme.rir)
-            Text(reps.map { String($0) } ?? "–")
-                .font(.system(size: 16, weight: .semibold))
-                .monospacedDigit()
+    private func reps(_ reps: Int?, _ rir: Int?, warm: Bool, tone: Color) -> some View {
+        RepsSplit(reps: reps.map { String($0) } ?? "–", rir: warm ? nil : .some(rir), size: 16)
+            .frame(maxWidth: .infinity, minHeight: 34)
+            .background(RoundedRectangle(cornerRadius: 8).fill(tone))
+    }
+}
+
+/// "REPS · RIR", with RIR in its colour.
+struct RepsHeader: View {
+    let title: String
+
+    var body: some View {
+        Text("\(title) \(Text("· RIR").foregroundStyle(Theme.rir))")
+            .lineLimit(1)
+            .minimumScaleFactor(0.7)
+            .frame(maxWidth: .infinity)
+    }
+}
+
+/// Reps | RIR in one cell. `rir` nil: no RIR part at all (warm-ups); `.some(nil)`: a dash.
+struct RepsSplit: View {
+    let reps: String
+    let rir: Int??
+    var repsDim = false
+    var rirDim = false
+    var size: CGFloat = 17
+
+    var body: some View {
+        HStack(spacing: 7) {
+            Text(reps)
+                .font(.system(size: size, weight: .semibold))
+                .foregroundStyle(repsDim ? Theme.dim : .white)
+            if let rir {
+                Rectangle().fill(Theme.control).frame(width: 1, height: size + 2)
+                Text(rir.map { String($0) } ?? "–")
+                    .font(.system(size: size - 2, weight: .bold))
+                    .foregroundStyle(rir == nil ? Theme.dim : Theme.rir.opacity(rirDim ? 0.45 : 1))
+            }
         }
-        .frame(maxWidth: .infinity, minHeight: 34)
-        .background(RoundedRectangle(cornerRadius: 8).fill(tone))
+        .monospacedDigit()
+        .lineLimit(1)
+        .minimumScaleFactor(0.7)
     }
 }
 

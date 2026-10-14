@@ -107,26 +107,41 @@ struct WeekChart: View {
     private let calendar = Stats.mondayCalendar()
 
     var body: some View {
+        if weeks.isEmpty {
+            EmptyStats(title: "No workouts yet", icon: "chart.bar.xaxis")
+                .frame(height: 180)
+                .frame(maxWidth: .infinity)
+                .background(RoundedRectangle(cornerRadius: 12).fill(Theme.surface))
+        } else {
+            chart
+        }
+    }
+
+    private var chart: some View {
         let focus = focusWeek
-        VStack(alignment: .leading, spacing: 12) {
-            VStack(alignment: .leading, spacing: 2) {
-                Text(focus.map { text(number($0)) } ?? "–")
-                    .font(.title3.weight(.semibold))
-                    .monospacedDigit()
-                Text(focus.map(weekTitle) ?? "No workouts yet")
-                    .font(.footnote)
-                    .foregroundStyle(Theme.grey)
+        let picked = selected != nil
+        return VStack(alignment: .leading, spacing: 12) {
+            if let focus {
+                if focus.workouts > 0 {
+                    NavigationLink(value: WeekLink(start: focus.start)) {
+                        ChartHeader(value: text(number(focus)), detail: weekTitle(focus))
+                    }
+                    .buttonStyle(.plain)
+                } else {
+                    ChartHeader(value: text(number(focus)), detail: weekTitle(focus), opens: false)
+                }
             }
             Chart(weeks) { w in
                 BarMark(x: .value("Week", w.start, unit: .weekOfYear, calendar: calendar),
                         y: .value(value.title, number(w)))
-                    .foregroundStyle(w.start == focus?.start ? Theme.blue : Theme.blue.opacity(0.45))
+                    .foregroundStyle(!picked || w.start == focus?.start ? Theme.blue : Theme.blue.opacity(0.5))
                     .cornerRadius(3)
             }
             .chartScrollableAxes(.horizontal)
             .chartXVisibleDomain(length: 3600 * 24 * 7 * 12)
             .chartScrollPosition(initialX: initialX)
             .chartXSelection(value: $selected)
+            .chartGesture { proxy in SpatialTapGesture().onEnded { proxy.selectXValue(at: $0.location.x) } }
             .chartXAxis {
                 AxisMarks(values: .stride(by: .month)) { _ in
                     AxisValueLabel(format: .dateTime.month(.abbreviated), centered: false)

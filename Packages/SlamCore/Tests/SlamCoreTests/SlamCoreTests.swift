@@ -1,46 +1,24 @@
 import XCTest
 @testable import SlamCore
 
-final class PlateTests: XCTestCase {
-    func testComposeUsesFewestPlates() {
-        XCTAssertEqual(Plates.compose(10, from: Plates.standard), [10])
-        XCTAssertEqual(Plates.compose(7.5, from: Plates.standard), [5, 2.5])
-        XCTAssertEqual(Plates.compose(40, from: Plates.standard), [25, 15])
-        XCTAssertEqual(Plates.compose(0, from: Plates.standard), [])
-        XCTAssertNil(Plates.compose(1, from: Plates.standard))
+final class StackTests: XCTestCase {
+    func testSlots() {
+        XCTAssertEqual(Exercise.slots(from: 5, step: 5, to: 20), [5, 10, 15, 20])
+        XCTAssertEqual(Exercise.slots(from: 2.5, step: 2.5, to: 9), [2.5, 5, 7.5])
+        XCTAssertEqual(Exercise.slots(from: 10, step: 0, to: 20), [])
+        XCTAssertEqual(Exercise.slots(from: 4, step: 7, to: 109).last, 109)
     }
 
-    func testTidyTurnsSmallPlatesIntoOne() {
-        XCTAssertEqual(Plates.tidy([5, 2.5, 2.5], available: Plates.standard), [10])
-        XCTAssertEqual(Plates.tidy([25, 10, 5], available: Plates.standard), [25, 15])
-        XCTAssertNil(Plates.tidy([10], available: Plates.standard))
-    }
-
-    func testTidyRespectsAwkwardFit() {
-        // A 25 does not fit on this pin: 20 is the biggest ever used.
-        XCTAssertEqual(Plates.tidy([20, 5, 5, 10], available: Plates.standard, maxPlate: 20), [20, 20])
-        XCTAssertEqual(Plates.tidy([20, 10, 10, 5], available: Plates.standard, maxPlate: 20), [20, 20, 5])
-    }
-
-    func testClosestFallsBelow() {
-        XCTAssertEqual(Plates.closest(8.6, from: [1.25, 2.5, 5]).reduce(0, +), 7.5)
-    }
-
-    func testRetargetKeepsStackAndAddOn() {
-        let load = Load(base: 109, addOn: 2, plates: [5, 2.5])
-        XCTAssertEqual(load.total(.pinMachine), 118.5)
-        let up = load.retargeted(to: 121, kind: .pinMachine, available: Plates.standard)
-        XCTAssertEqual(up, Load(base: 109, addOn: 2, plates: [10]))
-        let down = load.retargeted(to: 100, kind: .pinMachine, available: Plates.standard)
-        XCTAssertEqual(down?.total(.pinMachine), 100)
-        XCTAssertEqual(down?.plates, [])
-        XCTAssertNil(load.retargeted(to: 112, kind: .pinMachine, available: Plates.standard))
-    }
-
-    func testPlateLoadedCountsBothSides() {
-        let load = Load(plates: [20, 5])
-        XCTAssertEqual(load.total(.plateLoaded), 50)
-        XCTAssertEqual(load.retargeted(to: 60, kind: .plateLoaded, available: Plates.standard)?.plates, [25, 5])
+    func testFilledKeepsAddOnWithItsSlot() {
+        let prev = WorkSet(kg: 92, reps: 8, addOn: 2)
+        XCTAssertEqual(prev.base, 90)
+        let fresh = WorkSet().filled(from: prev)
+        XCTAssertEqual(fresh.kg, 92)
+        XCTAssertEqual(fresh.addOn, 2)
+        // Add-on switched on before a slot was picked, last time without it.
+        let on = WorkSet(addOn: 2).filled(from: WorkSet(kg: 90, reps: 8))
+        XCTAssertEqual(on.kg, 92)
+        XCTAssertEqual(on.addOn, 2)
     }
 }
 
@@ -59,10 +37,10 @@ final class PreviousTests: XCTestCase {
     }
 
     func testFilledTakesOnlyMissingValues() {
-        let prev = WorkSet(kg: 100, reps: 8, rir: 2, load: Load(base: 100))
+        let prev = WorkSet(kg: 102, reps: 8, rir: 2, addOn: 2)
         let typed = WorkSet(kg: 102.5).filled(from: prev)
         XCTAssertEqual(typed.kg, 102.5)
-        XCTAssertNil(typed.load)
+        XCTAssertNil(typed.addOn)
         XCTAssertEqual(typed.reps, 8)
         XCTAssertEqual(typed.rir, 2)
         let warm = WorkSet(kind: .warmup).filled(from: prev)
@@ -101,6 +79,23 @@ final class RecordTests: XCTestCase {
         XCTAssertTrue(r.contains(.setVolume))
         XCTAssertTrue(r.contains(.sessionVolume))
         XCTAssertFalse(r.contains(.set(0)))
+    }
+
+    func testLiveNewsComparesWithEarlierSetsToday() {
+        var b = Bests(type: .weightReps)
+        b.add(session([(97.5, 8), (90, 8)]))
+        var today = session([(100, 8), (102.5, 6)])
+        today.sets[1].done = false
+        // Set 1: heaviest beats history (97.5).
+        let first = b.news(today, set: today.sets[0].id)
+        XCTAssertEqual(first.first { $0.kind == .heaviest }?.before, 97.5)
+        XCTAssertEqual(first.first { $0.kind == .heaviest }?.after, 100)
+        // Set 2: heaviest again, now against set 1. Session volume already counted, not new.
+        today.sets[1].done = true
+        let second = b.news(today, set: today.sets[1].id)
+        XCTAssertEqual(second.first { $0.kind == .heaviest }?.before, 100)
+        XCTAssertEqual(second.first { $0.kind == .heaviest }?.after, 102.5)
+        XCTAssertFalse(second.contains { $0.kind == .sessionVolume })
     }
 
     func testFirstSessionHasNoRecords() {
@@ -151,10 +146,12 @@ final class StoreTests: XCTestCase {
         XCTAssertEqual(back.workouts.count, lib.workouts.count)
         XCTAssertEqual(back.workouts.first?.id, lib.workouts.first?.id)
         XCTAssertEqual(back.routines.map(\.name), ["FB A", "FB B", "FB C", "FB D"])
-        XCTAssertEqual(back.active?.exercises.first?.sets[1].load, Load(base: 109, addOn: 2, plates: [5, 2.5]))
+        XCTAssertEqual(back.active?.exercises.first?.sets[1].kg, 111)
+        XCTAssertEqual(back.active?.exercises.first?.sets[1].addOn, 2)
+        XCTAssertEqual(back.exercises.first?.stack.count, 16)
 
-        // A set written by an older version with fewer keys.
-        let old = #"{"id":"7C9E6679-7425-40DE-944B-E07FC1F90AE7","kg":20,"reps":5}"#
+        // A set written by an older version with fewer keys (and the old plate breakdown).
+        let old = #"{"id":"7C9E6679-7425-40DE-944B-E07FC1F90AE7","kg":20,"reps":5,"load":{"base":20,"addOn":0,"plates":[]}}"#
         let set = try FileStore.decoder.decode(WorkSet.self, from: Data(old.utf8))
         XCTAssertEqual(set.kind, .normal)
         XCTAssertFalse(set.done)
