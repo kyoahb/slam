@@ -10,7 +10,7 @@ concurrency:
 jobs:
   build:
     runs-on: macos-26
-    timeout-minutes: 30
+    timeout-minutes: 40
     steps:
       - uses: actions/checkout@v5
 
@@ -39,11 +39,15 @@ jobs:
         run: |
           if ! xcodebuild build -project Slam.xcodeproj -scheme Slam \
               -destination "id=$(head -1 build/sims | cut -d' ' -f1)" \
-              -derivedDataPath build/dd COMPILER_INDEX_STORE_ENABLE=NO > build/build.log 2>&1; then
+              -derivedDataPath build/dd COMPILER_INDEX_STORE_ENABLE=NO \
+              OTHER_SWIFT_FLAGS='$(inherited) -Xfrontend -warn-long-expression-type-checking=200 -Xfrontend -warn-long-function-bodies=300' \
+              > build/build.log 2>&1; then
             grep -E "error:" -A3 build/build.log | head -300
             exit 1
           fi
           grep -cE "warning:" build/build.log || true
+          # Anything slow to type-check, which is what stretches the build.
+          grep -E "to type-check" build/build.log | sed 's|.*/Slam/|Slam/|' | sort -u | head -40 || true
 
       - name: Screenshots
         env:
@@ -51,26 +55,31 @@ jobs:
           FRESH: history profile stats volume calendar exercise
         run: |
           mkdir -p shots
-          # One launch per screen; wait for a frame that is not black and has stopped changing.
+          # Simulator commands can hang on a busy runner, so each gets a time limit.
+          limit() { perl -e 'alarm shift; exec @ARGV' "$@"; }
+          # One launch per screen; the app writes tmp/demo-ready once the screen has settled.
           snap() {
-            id=$1; f=$2; shift 2
-            xcrun simctl launch --terminate-running-process "$id" com.kyoahb.slam -demo "$@" > /dev/null
-            prev=0
-            for _ in $(seq 20); do
-              sleep 1.5
-              xcrun simctl io "$id" screenshot "$f" > /dev/null 2>&1
-              size=$(stat -f %z "$f")
-              [ "$size" -gt 65000 ] && [ $(( (size - prev) * (size - prev) * 2500 )) -lt $(( size * size )) ] && break
-              prev=$size
-            done
+            id=$1; ready=$2; f=$3; shift 3
+            rm -f "$ready"
+            limit 60 xcrun simctl launch --terminate-running-process "$id" com.kyoahb.slam -demo "$@" > /dev/null || echo "launch failed: $f"
+            for _ in $(seq 60); do [ -f "$ready" ] && break; sleep 0.5; done
+            [ -f "$ready" ] || echo "not ready: $f"
+            limit 30 xcrun simctl io "$id" screenshot "$f" > /dev/null 2>&1 || echo "no screenshot: $f"
           }
           shoot() {
             id=$1; dev=$2
-            xcrun simctl bootstatus "$id" -b > /dev/null
+            if ! limit 240 xcrun simctl bootstatus "$id" -b > /dev/null; then
+              echo "$dev: boot stalled, booting again"
+              xcrun simctl shutdown "$id" || true
+              limit 240 xcrun simctl bootstatus "$id" -b > /dev/null
+            fi
             xcrun simctl status_bar "$id" override --time 9:41 --batteryState charged --batteryLevel 100 --wifiBars 3 --cellularMode notSupported
-            xcrun simctl install "$id" build/dd/Build/Products/Debug-iphonesimulator/Slam.app
-            for s in $SCREENS; do snap "$id" "shots/$dev-$s.png" -screen "$s"; done
-            for s in $FRESH; do snap "$id" "shots/$dev-fresh-$s.png" -fresh -screen "$s"; done
+            limit 180 xcrun simctl install "$id" build/dd/Build/Products/Debug-iphonesimulator/Slam.app
+            ready="$(xcrun simctl get_app_container "$id" com.kyoahb.slam data)/tmp/demo-ready"
+            echo "$(date +%T) $dev: shooting"
+            for s in $SCREENS; do snap "$id" "$ready" "shots/$dev-$s.png" -screen "$s"; done
+            for s in $FRESH; do snap "$id" "$ready" "shots/$dev-fresh-$s.png" -fresh -screen "$s"; done
+            echo "$(date +%T) $dev: done"
           }
           pids=()
           while read -r id dev; do shoot "$id" "$dev" & pids+=($!); done < build/sims

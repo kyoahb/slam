@@ -132,8 +132,6 @@ struct ExerciseDetailView: View {
                                     detail: focus.date.formatted(.dateTime.day().month(.abbreviated).year()) + " · " + gymName(focus.gymId))
                     }
                     .buttonStyle(.plain)
-                } else {
-                    ChartHeader(value: "–", detail: range == .all ? "Not done yet" : "Not done in this time", opens: false)
                 }
                 Spacer()
                 Menu {
@@ -147,7 +145,7 @@ struct ExerciseDetailView: View {
                 }
             }
             if points.isEmpty {
-                EmptyStats(title: "No sessions to show", icon: "chart.xyaxis.line")
+                EmptyStats(title: range == .all ? "Not done yet" : "Not done in this time", icon: "chart.xyaxis.line")
                     .frame(height: 200)
                     .background(RoundedRectangle(cornerRadius: 12).fill(Theme.surface))
             } else {

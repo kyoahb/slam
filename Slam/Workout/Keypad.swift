@@ -101,6 +101,7 @@ struct Keypad: View {
                     }
                 }
             }
+            .frame(maxWidth: .infinity)
             .onAppear { scroll(proxy, stack, to: own ?? last) }
             .onChange(of: f) { scroll(proxy, stack, to: editor.set(f)?.base ?? editor.placeholder(f)?.base) }
         }

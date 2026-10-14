@@ -6,11 +6,18 @@ extension AppModel {
     func prepareDemo(_ args: [String]) {
         addDemoPhotos()
         let screen = args.firstIndex(of: "-screen").flatMap { args.indices.contains($0 + 1) ? args[$0 + 1] : nil } ?? "workout"
+        let ready = FileManager.default.temporaryDirectory.appendingPathComponent("demo-ready")
+        try? FileManager.default.removeItem(at: ready)
         // After launch: selecting a cell talks to UIApplication, which does not exist yet.
-        Task { @MainActor in self.show(screen) }
+        Task { @MainActor in
+            await self.show(screen)
+            // CI takes the screenshot once this file exists: the screen and its animations have settled.
+            try? await Task.sleep(for: .seconds(2))
+            FileManager.default.createFile(atPath: ready.path, contents: nil)
+        }
     }
 
-    private func show(_ screen: String) {
+    private func show(_ screen: String) async {
         switch screen {
         case "routines":
             tab = .workout
@@ -39,6 +46,8 @@ extension AppModel {
             }
         case "form":
             showWorkout = true
+            // A sheet set while the workout is still sliding up is dropped.
+            try? await Task.sleep(for: .seconds(0.8))
             if let editor, let entry = editor.workout.exercises.first {
                 editor.editingExercise = ExerciseLink(id: entry.exerciseId)
             }
@@ -51,6 +60,7 @@ extension AppModel {
             editor?.saving = true
         case "picker":
             showWorkout = true
+            try? await Task.sleep(for: .seconds(0.8))
             editor?.picking = true
         case "routine":
             tab = .workout

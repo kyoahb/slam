@@ -47,13 +47,6 @@ struct StatisticsView: View {
         .background(Theme.bg)
         .navigationTitle("Statistics")
         .navigationBarTitleDisplayMode(.inline)
-        .navigationDestination(for: StatsRoute.self) { route in
-            switch route {
-            case .volume: VolumeStatsView()
-            case .muscles: MuscleSetsView()
-            case .mainExercises: MainExercisesView()
-            }
-        }
     }
 
     private func dayTile(_ d: Date, worked: Bool, today: Bool) -> some View {
@@ -180,11 +173,12 @@ struct VolumeStatsView: View {
             list.min { abs($0.date.timeIntervalSince(d)) < abs($1.date.timeIntervalSince(d)) }
         }
         let focus = picked ?? list.last
+        let name = focus.flatMap { model.workout($0.id)?.title } ?? "Workout"
         return VStack(alignment: .leading, spacing: 12) {
             if let focus {
                 NavigationLink(value: WorkoutLink(id: focus.id)) {
                     ChartHeader(value: perWorkout == .volume ? Format.volume(focus.value) : "\(Int(focus.value)) sets",
-                                detail: (model.workout(focus.id)?.title ?? "Workout") + " · " + focus.date.shortDay)
+                                detail: "\(name) · \(focus.date.shortDay)")
                 }
                 .buttonStyle(.plain)
             }
@@ -227,14 +221,15 @@ struct MuscleSetsView: View {
         let end = calendar.date(byAdding: .weekOfYear, value: 1, to: start) ?? start
         let rows = Stats.setsPerMuscle(model.workouts, model.byId, from: start, to: end)
         let first = model.workouts.last.map { Stats.weekStart($0.start, calendar) } ?? start
+        let last: Date = calendar.date(byAdding: .day, value: 6, to: start) ?? start
+        let title = weekOffset == 0 ? "This week" : "\(start.shortDay) – \(last.shortDay)"
         ScrollView {
             VStack(alignment: .leading, spacing: 18) {
                 HStack {
                     Button { weekOffset -= 1 } label: { Image(systemName: "chevron.left").frame(width: 44, height: 36) }
                         .disabled(start <= first)
                     Spacer()
-                    Text(weekOffset == 0 ? "This week" : start.shortDay + " – " + (calendar.date(byAdding: .day, value: 6, to: start) ?? start).shortDay)
-                        .font(.headline)
+                    Text(title).font(.headline)
                     Spacer()
                     Button { weekOffset += 1 } label: { Image(systemName: "chevron.right").frame(width: 44, height: 36) }
                         .disabled(weekOffset >= 0)

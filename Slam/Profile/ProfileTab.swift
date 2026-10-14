@@ -46,6 +46,13 @@ struct ProfileTab: View {
                 case .settings: SettingsView()
                 }
             }
+            .navigationDestination(for: StatsRoute.self) { route in
+                switch route {
+                case .volume: VolumeStatsView()
+                case .muscles: MuscleSetsView()
+                case .mainExercises: MainExercisesView()
+                }
+            }
             .appDestinations()
             .workoutBar()
         }

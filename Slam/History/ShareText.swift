@@ -31,7 +31,8 @@ enum ShareText {
                     n += 1
                     label = "Set \(n)"
                 }
-                lines.append(label + ": " + SetText.describe(s, ex, split: true) + rir(s, ex) + (medals.contains(s.id) ? " 🏅" : ""))
+                let medal = medals.contains(s.id) ? " 🏅" : ""
+                lines.append("\(label): \(SetText.describe(s, ex, split: true))\(rir(s, ex))\(medal)")
             }
         }
         return lines.joined(separator: "\n")
