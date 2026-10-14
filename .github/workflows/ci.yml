@@ -72,7 +72,11 @@ jobs:
           snap() {
             id=$1; ready=$2; f=$3; shift 3
             rm -f "$ready"
-            limit 60 xcrun simctl launch --terminate-running-process "$id" com.kyoahb.slam -demo "$@" > /dev/null || echo "launch failed: $f"
+            if ! limit 60 xcrun simctl launch --terminate-running-process "$id" com.kyoahb.slam -demo "$@" > /dev/null; then
+              echo "launch failed: $f"
+              limit 60 xcrun simctl spawn "$id" log show --last 2m --style compact \
+                --predicate 'process == "Slam" OR eventMessage CONTAINS[c] "com.kyoahb.slam"' 2>&1 | tail -25
+            fi
             for _ in $(seq 60); do [ -f "$ready" ] && break; sleep 0.5; done
             [ -f "$ready" ] || echo "not ready: $f"
             limit 30 xcrun simctl io "$id" screenshot "$f" > /dev/null 2>&1 ||
@@ -102,6 +106,26 @@ jobs:
           while read -r id dev; do shoot "$id" "$dev" & pids+=($!); done < build/sims
           for p in "${pids[@]}"; do wait "$p"; done
           ls -l shots
+
+      - name: Crash reports
+        if: always()
+        run: |
+          for f in ~/Library/Logs/DiagnosticReports/Slam*.ips; do
+            [ -f "$f" ] || continue
+            echo "== $f"
+            python3 - "$f" <<'PY'
+          import json, sys
+          r = json.loads(open(sys.argv[1]).read().partition("\n")[2])
+          print(json.dumps(r.get("exception")), json.dumps(r.get("termination"))[:600])
+          print(json.dumps(r.get("asi"))[:1500])
+          images = r.get("usedImages", [])
+          thread = next((t for t in r.get("threads", []) if t.get("triggered")), {})
+          for fr in (r.get("lastExceptionBacktrace") or thread.get("frames", []))[:30]:
+              i = fr.get("imageIndex")
+              name = images[i].get("name", "?") if i is not None and i < len(images) else "?"
+              print(" ", name, fr.get("symbol", ""), fr.get("symbolLocation", ""))
+          PY
+          done
 
       - uses: actions/upload-artifact@v4
         if: always()
