@@ -75,7 +75,8 @@ jobs:
             limit 60 xcrun simctl launch --terminate-running-process "$id" com.kyoahb.slam -demo "$@" > /dev/null || echo "launch failed: $f"
             for _ in $(seq 60); do [ -f "$ready" ] && break; sleep 0.5; done
             [ -f "$ready" ] || echo "not ready: $f"
-            limit 30 xcrun simctl io "$id" screenshot "$f" > /dev/null 2>&1 || echo "no screenshot: $f"
+            limit 30 xcrun simctl io "$id" screenshot "$f" > /dev/null 2>&1 ||
+              limit 30 xcrun simctl io "$id" screenshot "$f" > /dev/null 2>&1 || echo "no screenshot: $f"
           }
           shoot() {
             id=$1; dev=$2

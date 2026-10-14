@@ -40,6 +40,14 @@ targets:
         NSCameraUsageDescription: Take photos for your workouts.
         NSHealthShareUsageDescription: Links your Apple Watch workouts to the cardio you log.
         NSSupportsLiveActivities: true
+        BGTaskSchedulerPermittedIdentifiers:
+          - com.kyoahb.slam.sync
+        UIBackgroundModes:
+          - fetch
+        CFBundleURLTypes:
+          - CFBundleURLName: com.kyoahb.slam
+            CFBundleURLSchemes:
+              - slam
         UIFileSharingEnabled: true
         UILaunchScreen: {}
         UIUserInterfaceStyle: Dark

@@ -1,0 +1,132 @@
+import Foundation
+import SlamCore
+
+/// The server's copy of everything: one JSON file per record under `records/<kind>/`, deleted ones kept as
+/// markers so they cannot come back, and photos under `photos/`.
+public actor Vault {
+    public let root: URL
+    private var records: [String: SyncRecord] = [:]
+    public private(set) var seq = 0
+    private var cached: Library?
+
+    var recordsDir: URL { root.appendingPathComponent("records", isDirectory: true) }
+    var photosDir: URL { root.appendingPathComponent("photos", isDirectory: true) }
+
+    public init(root: URL) throws {
+        self.root = root
+        let fm = FileManager.default
+        for kind in SyncKind.allCases {
+            let dir = root.appendingPathComponent("records/\(kind.rawValue)", isDirectory: true)
+            try fm.createDirectory(at: dir, withIntermediateDirectories: true)
+            for url in try fm.contentsOfDirectory(at: dir, includingPropertiesForKeys: nil) where url.pathExtension == "json" {
+                let r = try FileStore.decoder.decode(SyncRecord.self, from: Data(contentsOf: url))
+                records[r.key] = r
+                seq = max(seq, r.seq)
+            }
+        }
+        try fm.createDirectory(at: root.appendingPathComponent("photos", isDirectory: true), withIntermediateDirectories: true)
+    }
+
+    /// The phone's round trip: everything changed here since its cursor, then its own changes taken in.
+    public func sync(_ request: SyncRequest) throws -> SyncResponse {
+        let out = records.values.filter { $0.seq > request.cursor && $0.kind != .active }.sorted { $0.seq < $1.seq }
+        for r in request.changes { try accept(r) }
+        return SyncResponse(cursor: seq, changes: out)
+    }
+
+    /// Keeps a change unless the stored record was edited later. Returns whether anything changed.
+    @discardableResult
+    public func accept(_ r: SyncRecord) throws -> Bool {
+        guard Sync.safeFile(r.id) else { throw VaultError.badId(r.id) }
+        let current = records[r.key]
+        if let current, current.updated > r.updated { return false }
+        if r.deleted {
+            // Nothing there to delete.
+            guard let current, !current.deleted else { return false }
+        } else if let current, !current.deleted, current.fingerprint == r.fingerprint {
+            return false
+        }
+        var r = r
+        seq += 1
+        r.seq = seq
+        try FileStore.encoder.encode(r).write(to: file(r.key), options: .atomic)
+        records[r.key] = r
+        cached = nil
+        return true
+    }
+
+    /// A change made here rather than on the phone: it counts as the newest edit.
+    @discardableResult
+    public func put(_ r: SyncRecord) throws -> Bool {
+        var r = r
+        r.updated = max(Date(), (records[r.key]?.updated ?? .distantPast).addingTimeInterval(1))
+        return try accept(r)
+    }
+
+    public func record(_ key: String) -> SyncRecord? {
+        records[key].flatMap { $0.deleted ? nil : $0 }
+    }
+
+    /// Everything, as the phone sees it.
+    public func library() -> Library {
+        if let cached { return cached }
+        var lib = Library()
+        for r in records.values.sorted(by: { $0.seq < $1.seq }) where !r.deleted { Sync.apply(r, to: &lib) }
+        cached = lib
+        return lib
+    }
+
+    // MARK: Photos
+
+    public func missingPhotos(_ files: [String]) -> [String] {
+        files.filter { Sync.safeFile($0) && !FileManager.default.fileExists(atPath: photosDir.appendingPathComponent($0).path) }
+    }
+
+    public func savePhoto(_ data: Data, as name: String) throws {
+        guard Sync.safeFile(name) else { throw VaultError.badId(name) }
+        try data.write(to: photosDir.appendingPathComponent(name), options: .atomic)
+    }
+
+    public func photo(_ name: String) -> Data? {
+        guard Sync.safeFile(name) else { return nil }
+        return try? Data(contentsOf: photosDir.appendingPathComponent(name))
+    }
+
+    // MARK: Backups
+
+    /// Copies everything to `<dir>/slam-<time>/` and keeps the newest `keep` copies.
+    public func backup(to dir: URL, keep: Int = 30, now: Date = Date()) throws -> URL {
+        let fm = FileManager.default
+        let stamp = Self.stamp.string(from: now)
+        let dest = dir.appendingPathComponent("slam-\(stamp)", isDirectory: true)
+        try fm.createDirectory(at: dir, withIntermediateDirectories: true)
+        if fm.fileExists(atPath: dest.path) { try fm.removeItem(at: dest) }
+        try fm.createDirectory(at: dest, withIntermediateDirectories: true)
+        for name in ["records", "photos"] {
+            try fm.copyItem(at: root.appendingPathComponent(name), to: dest.appendingPathComponent(name))
+        }
+        let old = try fm.contentsOfDirectory(atPath: dir.path).filter { $0.hasPrefix("slam-") }.sorted().dropLast(keep)
+        for name in old { try? fm.removeItem(at: dir.appendingPathComponent(name)) }
+        return dest
+    }
+
+    private static let stamp: DateFormatter = {
+        let f = DateFormatter()
+        f.locale = Locale(identifier: "en_US_POSIX")
+        f.timeZone = TimeZone(identifier: "UTC")
+        f.dateFormat = "yyyyMMdd-HHmmss"
+        return f
+    }()
+
+    private func file(_ key: String) -> URL { recordsDir.appendingPathComponent(key + ".json") }
+}
+
+public enum VaultError: Error, CustomStringConvertible {
+    case badId(String)
+
+    public var description: String {
+        switch self {
+        case let .badId(id): "not a usable id: \(id)"
+        }
+    }
+}

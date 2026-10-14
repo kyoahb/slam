@@ -1,0 +1,35 @@
+# docker compose -p slam -f Server/compose.yml --env-file ~/.config/slam/server.env up -d --build
+name: slam
+services:
+  server:
+    build:
+      context: ..
+      dockerfile: Server/Dockerfile
+    image: slam-server:${SLAM_TAG:-latest}
+    restart: unless-stopped
+    environment:
+      SLAM_PHONE_TOKEN: ${SLAM_PHONE_TOKEN:?}
+      SLAM_READ_TOKEN: ${SLAM_READ_TOKEN:?}
+      SLAM_WRITE_TOKEN: ${SLAM_WRITE_TOKEN:?}
+      SLAM_DATA: /data
+      SLAM_BACKUPS: /backups
+    volumes:
+      - data:/data
+      - ${SLAM_BACKUP_DIR:?}:/backups
+    ports:
+      - 127.0.0.1:9097:9097
+    read_only: true
+    cap_drop: [ALL]
+    security_opt: [no-new-privileges:true]
+    healthcheck:
+      test: ["CMD", "bash", "-c", "exec 3<>/dev/tcp/127.0.0.1/9097 && printf 'GET /v1/health HTTP/1.0\\r\\n\\r\\n' >&3 && grep -q ok <&3"]
+      interval: 30s
+      timeout: 5s
+      retries: 3
+volumes:
+  data:
+networks:
+  default:
+    ipam:
+      config:
+        - subnet: 10.231.79.0/24

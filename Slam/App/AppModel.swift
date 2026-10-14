@@ -40,9 +40,16 @@ final class AppModel {
     let demo: Bool
     private let thumbs = NSCache<NSString, UIImage>()
 
+    /// The Slam server this phone syncs with, if it was set up.
+    var syncConfig: SyncConfig?
+    var syncStatus = SyncStatus()
+    @ObservationIgnored var syncDelay: Task<Void, Never>?
+
     init(store: FileStore, library: Library, demo: Bool) {
         self.store = store
         self.demo = demo
+        syncConfig = demo ? nil : SyncConfig.load()
+        syncStatus.last = demo ? nil : store.loadSync().lastSync
         exercises = library.exercises
         folders = library.folders
         routines = library.routines
@@ -166,6 +173,7 @@ final class AppModel {
 
     func saveActive(_ w: Workout?) {
         try? store.saveActive(w)
+        syncSoon()
     }
 
     func discardActive() {
@@ -195,6 +203,7 @@ final class AppModel {
         workouts.sort { $0.start > $1.start }
         try? store.save(workout: w)
         recomputeRecords()
+        syncSoon()
     }
 
     func delete(_ w: Workout) {
@@ -202,6 +211,7 @@ final class AppModel {
         try? store.delete(workout: w.id)
         for p in w.photos { try? FileManager.default.removeItem(at: store.photosDir.appendingPathComponent(p.file)) }
         recomputeRecords()
+        syncSoon()
     }
 
     static func defaultTitle(_ date: Date) -> String {
@@ -311,6 +321,7 @@ final class AppModel {
 
     func persistRoutines() {
         try? store.saveRoutines(folders, routines)
+        syncSoon()
     }
 
     func editRoutine(_ r: Routine?, folder: UUID? = nil) {
@@ -342,6 +353,7 @@ final class AppModel {
         }
         reindex()
         try? store.saveExercises(exercises)
+        syncSoon()
     }
 
     func delete(exercise e: Exercise) {
@@ -349,6 +361,7 @@ final class AppModel {
         exercises.removeAll { $0.id == e.id }
         reindex()
         try? store.saveExercises(exercises)
+        syncSoon()
     }
 
     @discardableResult
@@ -356,6 +369,7 @@ final class AppModel {
         let g = Gym(name: name)
         gyms.append(g)
         try? store.saveGyms(gyms)
+        syncSoon()
         if settings.gymId == nil {
             settings.gymId = g.id
             saveSettings()
@@ -367,11 +381,13 @@ final class AppModel {
         guard let i = gyms.firstIndex(where: { $0.id == gym.id }) else { return }
         gyms[i].name = name
         try? store.saveGyms(gyms)
+        syncSoon()
     }
 
     func delete(gym: Gym) {
         gyms.removeAll { $0.id == gym.id }
         try? store.saveGyms(gyms)
+        syncSoon()
         if settings.gymId == gym.id {
             settings.gymId = gyms.first?.id
             saveSettings()
@@ -380,6 +396,7 @@ final class AppModel {
 
     func saveSettings() {
         try? store.saveSettings(settings)
+        syncSoon()
     }
 
     // MARK: Photos

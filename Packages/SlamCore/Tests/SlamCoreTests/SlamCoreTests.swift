@@ -280,3 +280,84 @@ final class WatchTests: XCTestCase {
         XCTAssertEqual(back.exercises[1].watch, link)
     }
 }
+
+final class SyncTests: XCTestCase {
+    private func lib() -> Library {
+        let press = Exercise(name: "Leg Press")
+        let w = Workout(title: "Legs", start: Date(timeIntervalSince1970: 1_000_000), exercises: [WorkoutExercise(exerciseId: press.id)])
+        return Library(exercises: [press], routines: [Routine(name: "Legs")], workouts: [w])
+    }
+
+    func testFirstSyncSendsEverythingThenNothing() {
+        var l = lib()
+        var state = SyncState()
+        let sent = Sync.changes(l, state) { _ in nil }
+        XCTAssertEqual(Set(sent.map(\.kind)), [.exercise, .routine, .workout, .settings])
+        Sync.finish(&l, &state, sent: sent, response: SyncResponse(cursor: 4, changes: []))
+        XCTAssertEqual(state.cursor, 4)
+        XCTAssertTrue(Sync.changes(l, state) { _ in nil }.isEmpty)
+    }
+
+    func testEditsAndDeletesTravel() {
+        var l = lib()
+        var state = SyncState()
+        Sync.finish(&l, &state, sent: Sync.changes(l, state) { _ in nil }, response: SyncResponse(cursor: 4, changes: []))
+        l.routines[0].name = "Legs A"
+        let gone = l.workouts.removeFirst()
+        let sent = Sync.changes(l, state) { _ in nil }
+        XCTAssertEqual(sent.count, 2)
+        XCTAssertEqual(sent.first { $0.kind == .routine }?.routine?.name, "Legs A")
+        XCTAssertTrue(sent.first { $0.kind == .workout }?.deleted ?? false)
+        XCTAssertEqual(sent.first { $0.kind == .workout }?.id, gone.id.uuidString)
+    }
+
+    func testNewerEditWins() {
+        var l = lib()
+        var state = SyncState()
+        Sync.finish(&l, &state, sent: Sync.changes(l, state) { _ in nil }, response: SyncResponse(cursor: 4, changes: []))
+        let routine = l.routines[0]
+        var theirs = SyncRecord(kind: .routine, id: routine.id.uuidString, updated: Date(timeIntervalSince1970: 2000), seq: 5)
+        theirs.routine = Routine(id: routine.id, name: "Server name")
+        // The phone's edit is older: the server's stands.
+        l.routines[0].name = "Phone name"
+        var sent = Sync.changes(l, state) { _ in Date(timeIntervalSince1970: 1000) }
+        Sync.finish(&l, &state, sent: sent, response: SyncResponse(cursor: 5, changes: [theirs]))
+        XCTAssertEqual(l.routines[0].name, "Server name")
+        XCTAssertTrue(Sync.changes(l, state) { _ in nil }.isEmpty)
+        // The phone's edit is newer: it stays.
+        l.routines[0].name = "Phone again"
+        theirs.routine?.name = "Server again"
+        sent = Sync.changes(l, state) { _ in Date(timeIntervalSince1970: 3000) }
+        Sync.finish(&l, &state, sent: sent, response: SyncResponse(cursor: 6, changes: [theirs]))
+        XCTAssertEqual(l.routines[0].name, "Phone again")
+    }
+
+    func testServerDeleteAndActiveIgnored() {
+        var l = lib()
+        l.active = Workout(title: "Now")
+        var state = SyncState()
+        Sync.finish(&l, &state, sent: Sync.changes(l, state) { _ in nil }, response: SyncResponse(cursor: 5, changes: []))
+        let gone = SyncRecord(kind: .exercise, id: l.exercises[0].id.uuidString, updated: Date(), seq: 6)
+        var other = SyncRecord(kind: .active, id: Sync.activeId, updated: Date(), seq: 7)
+        other.workout = Workout(title: "Elsewhere")
+        Sync.finish(&l, &state, sent: [], response: SyncResponse(cursor: 7, changes: [gone, other]))
+        XCTAssertTrue(l.exercises.isEmpty)
+        XCTAssertEqual(l.active?.title, "Now")
+        XCTAssertTrue(Sync.changes(l, state) { _ in nil }.isEmpty)
+    }
+
+    func testRecordsRoundTrip() throws {
+        let l = lib()
+        var copy = Library()
+        for r in Sync.records(l).values {
+            let data = try FileStore.encoder.encode(r)
+            Sync.apply(try FileStore.decoder.decode(SyncRecord.self, from: data), to: &copy)
+        }
+        XCTAssertEqual(copy.exercises, l.exercises)
+        XCTAssertEqual(copy.workouts, l.workouts)
+        XCTAssertEqual(copy.routines, l.routines)
+        XCTAssertTrue(Sync.safeFile("A1B2-c3.jpg"))
+        XCTAssertFalse(Sync.safeFile("../x.jpg"))
+        XCTAssertFalse(Sync.safeFile(".hidden"))
+    }
+}

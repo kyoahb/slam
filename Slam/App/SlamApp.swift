@@ -12,6 +12,10 @@ struct SlamApp: App {
                 .preferredColorScheme(.dark)
                 .tint(Theme.blue)
         }
+        .backgroundTask(.appRefresh(AppModel.refreshTask)) {
+            await model.syncNow()
+            await model.scheduleBackgroundSync()
+        }
     }
 }
 
@@ -39,8 +43,22 @@ struct RootView: View {
                 LivePreview(start: editor.workout.start, state: model.liveState(editor))
             }
         }
-        .onChange(of: phase) { _, now in
-            if now == .active { model.checkWatch() }
+        .onChange(of: phase, initial: true) { _, now in
+            switch now {
+            case .active:
+                model.checkWatch()
+                Task { await model.syncNow() }
+            case .background:
+                model.scheduleBackgroundSync()
+            default:
+                break
+            }
+        }
+        .onOpenURL { url in
+            if model.setUpSync(url) {
+                model.tab = .profile
+                model.profilePath = NavigationPath([ProfileRoute.settings])
+            }
         }
         .task(id: model.restEnd) {
             guard let end = model.restEnd else { return }

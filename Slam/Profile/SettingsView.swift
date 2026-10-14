@@ -55,6 +55,7 @@ struct SettingsView: View {
                     addingGym = true
                 }
             }
+            SyncSection()
             Section {
                 Button("Export Data", systemImage: "square.and.arrow.up") {
                     if let url = model.exportFile() { export = ExportFile(url: url) }
@@ -94,6 +95,55 @@ struct SettingsView: View {
     }
 
     private func used(_ g: Gym) -> Bool { model.workouts.contains { $0.gymId == g.id } }
+}
+
+/// The Slam server on your PC: when this phone last synced with it.
+struct SyncSection: View {
+    @Environment(AppModel.self) private var model
+    @State private var confirmOff = false
+
+    var body: some View {
+        Section {
+            if let config = model.syncConfig {
+                HStack {
+                    Text(config.url.host() ?? "Server")
+                        .lineLimit(1)
+                        .truncationMode(.middle)
+                    Spacer()
+                    status
+                }
+                if let error = model.syncStatus.error {
+                    Text(error).font(.footnote).foregroundStyle(Theme.red)
+                }
+                Button("Sync Now", systemImage: "arrow.triangle.2.circlepath") {
+                    Task { await model.syncNow() }
+                }
+                .disabled(model.syncStatus.running)
+                Button("Turn Off Sync", role: .destructive) { confirmOff = true }
+            } else {
+                Text("Scan the setup code on your PC with the Camera.")
+                    .foregroundStyle(Theme.grey)
+            }
+        } header: {
+            Text("Sync")
+        }
+        .confirmationDialog("Turn off sync?", isPresented: $confirmOff, titleVisibility: .visible) {
+            Button("Turn Off", role: .destructive) { model.turnOffSync() }
+        } message: {
+            Text("Your data stays on this phone and on the server.")
+        }
+    }
+
+    @ViewBuilder private var status: some View {
+        if model.syncStatus.running {
+            ProgressView()
+        } else if let last = model.syncStatus.last {
+            Text(last.formatted(.relative(presentation: .named)))
+                .foregroundStyle(model.syncStatus.error == nil ? Theme.grey : Theme.red)
+        } else {
+            Text("Never").foregroundStyle(Theme.grey)
+        }
+    }
 }
 
 struct RestStepper: View {

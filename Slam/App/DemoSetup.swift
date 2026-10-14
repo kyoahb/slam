@@ -86,8 +86,13 @@ extension AppModel {
             if var w = workouts.first(where: { $0.exercises.contains(where: cardio) }),
                let i = w.exercises.firstIndex(where: cardio) {
                 let end = w.start.addingTimeInterval(33 * 60)
-                w.exercises[i].watch = WatchLink(id: UUID(), start: end.addingTimeInterval(-1930), end: end,
-                                                 meters: 6200, kcal: 412, heartRate: 141)
+                let link = WatchLink(id: UUID(), start: end.addingTimeInterval(-1930), end: end,
+                                     meters: 6200, kcal: 412, heartRate: 141)
+                w.exercises[i].watch = link
+                if !w.exercises[i].sets.isEmpty {
+                    w.exercises[i].sets[0].seconds = link.seconds
+                    w.exercises[i].sets[0].meters = link.meters
+                }
                 w.exercises.move(fromOffsets: [i], toOffset: 0)
                 insert(w)
                 historyPath.append(WorkoutLink(id: w.id))
