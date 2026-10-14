@@ -41,6 +41,7 @@ struct Summary: Encodable {
         var barbells = 0
         var entriesWithBarInHevy = 0
         var stacksFromSeveralGyms = 0
+        var splitByBrand = 0
     }
 
     var rules: String
@@ -113,7 +114,7 @@ struct Report {
                                   lowConfidenceEquipment: doubts.count, lrOnBilateral: tally.sidesOnBilateral.count,
                                   gymAgainstTimeline: gymFlags.count, barbells: barbells.count,
                                   entriesWithBarInHevy: tally.loggedWithBar.values.reduce(0, +),
-                                  stacksFromSeveralGyms: mixedStacks.count)
+                                  stacksFromSeveralGyms: mixedStacks.count, splitByBrand: im.splits.count)
         return s
     }
 
@@ -171,6 +172,9 @@ struct Report {
         let flags = gymFlags
         o += section("Gym differs from the timeline", flags.count, flags.map {
             "<li>\($0.day) \(h($0.title)): <b>\(h($0.gym))</b> (\(h($0.basis))), timeline says \(h($0.timeline))</li>"
+        })
+        o += section("Split by brand (one exercise per brand's machine; the gym where the brand is unknown)", im.splits.count, im.splits.map { s in
+            "<li>\(h(s.from)) → " + s.into.map { "<b>\(h($0.exercise.name))</b> \(workouts($0))" }.joined(separator: ", ") + "</li>"
         })
         o += section("Stacks seen at more than one gym (slots kept from the latest)", mixedStacks.count, mixedStacks.map { p in
             let gyms = p.slots.keys.map { im.finder.name($0 < 0 ? nil : $0) ?? "unknown gym" }.sorted().joined(separator: ", ")

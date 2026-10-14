@@ -140,6 +140,41 @@ final class ImportTests: XCTestCase {
         XCTAssertNil(lib.workouts[0].gymId)
     }
 
+    func testMachinesSplitByBrand() throws {
+        try write("workouts_p0001.json", ["page": 1, "page_count": 1, "workouts": [
+            workout("W2", "Push at Gym Two", "2025-02-10T08:00:00Z", [
+                entry(press, "Test Chest Press", "", [set("normal", 60, 8)]),
+                entry(crunch, "Test Crunch", "", [set("normal", nil, 20)]),
+            ]),
+            workout("W1", "Push at Gym One", "2025-01-10T08:00:00Z", [
+                entry(press, "Test Chest Press", "", [set("normal", 50, 8)]),
+                entry(curl, "Test Single Arm Cable Curl", "", [set("normal", 20, 8)]),
+                entry(crunch, "Test Crunch", "", [set("normal", nil, 20)]),
+            ], routine: "R1"),
+        ]])
+        let rules = Rules(gyms: [Rules.Gym(name: "Gym One", text: ["gym one"], brand: "Brand A", brandAllMachines: true),
+                                 Rules.Gym(name: "Gym Two", text: ["gym two"])], currentGym: "Gym Two")
+        try JSONEncoder().encode(rules).write(to: out.appendingPathComponent("rules.json"))
+        try HevyImport.run(raw: raw, out: out)
+        let lib = try FileStore(root: out.appendingPathComponent("library")).load()
+
+        let presses = lib.exercises.filter { $0.hevyId == press }
+        XCTAssertEqual(presses.map(\.name).sorted(), ["Brand A Test Chest Press", "Test Chest Press"])
+        let a = try XCTUnwrap(presses.first { $0.brand == "Brand A" })
+        let b = try XCTUnwrap(presses.first { $0.brand.isEmpty })
+        let w1 = try XCTUnwrap(lib.workouts.first { $0.hevyId == "W1" })
+        let w2 = try XCTUnwrap(lib.workouts.first { $0.hevyId == "W2" })
+        XCTAssertEqual(w1.exercises[0].exerciseId, a.id)
+        XCTAssertEqual(w2.exercises[0].exerciseId, b.id)
+        XCTAssertEqual(lib.routines[0].exercises[0].exerciseId, a.id)
+        XCTAssertEqual(lib.exercises.filter { $0.hevyId == curl }.map(\.name), ["Brand A Test Single Arm Cable Curl"])
+        XCTAssertEqual(lib.exercises.filter { $0.hevyId == crunch }.count, 1)
+
+        let map = try JSONDecoder().decode(ImportMap.self, from: Data(contentsOf: out.appendingPathComponent("import-map.json")))
+        XCTAssertEqual(map.exercises["\(press)@Brand A"], a.id)
+        XCTAssertEqual(map.exercises["\(press)@Gym Two"], b.id)
+    }
+
     // MARK: Invented Hevy JSON
 
     private func write(_ name: String, _ object: Any) throws {

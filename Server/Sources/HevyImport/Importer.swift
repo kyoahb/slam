@@ -45,6 +45,8 @@ final class Plan {
     var pin = false
     var bar: (day: String, kg: Double, source: String)?
     var settingsUsed: [String] = []
+    /// The brand, or the gym when its brand is unknown, when one Hevy exercise was done on several brands' machines.
+    var part: String?
 
     init(exercise: Exercise, templates: [String], titles: [String], rigging: Rigging) {
         self.exercise = exercise
@@ -57,6 +59,9 @@ final class Plan {
     var likelySetting: String? {
         settingOrder.max { settingCounts[$0]! < settingCounts[$1]! || (settingCounts[$0]! == settingCounts[$1]! && settingOrder.firstIndex(of: $0)! > settingOrder.firstIndex(of: $1)!) }
     }
+
+    /// The id map's key for one of its templates.
+    func mapKey(_ t: String) -> String { part.map { "\(t)@\($0)" } ?? t }
 
     func record(_ load: Load, day: String, gym: Int?) {
         guard exercise.rig == .stack else { return }
@@ -96,7 +101,10 @@ final class Importer {
     var uses: [Use] = []
     var workoutGym: [(gym: Int?, basis: GymFinder.Basis)] = []
     var plans: [Plan] = []
-    var planOf: [String: Plan] = [:]
+    /// Every exercise a Hevy template went into: more than one when it was split by brand.
+    var planOf: [String: [Plan]] = [:]
+    /// Hevy exercises split by brand: the Hevy name and what it became.
+    var splits: [(from: String, into: [Plan])] = []
     var applied: [Int: Applied] = [:]
     var routineUses: [(routine: Int, use: Use, applied: Applied?)] = []
     var tally = Tally()
@@ -118,11 +126,11 @@ final class Importer {
         readRoutines()
         countSettings()
         for (i, u) in uses.enumerated() {
-            if let p = planOf[u.entry.exerciseTemplateId] { applied[i] = apply(u, p, routine: false) }
+            if let p = plan(u) { applied[i] = apply(u, p, routine: false) }
         }
         for k in routineUses.indices {
             let u = routineUses[k].use
-            if let p = planOf[u.entry.exerciseTemplateId] { routineUses[k].applied = apply(u, p, routine: true) }
+            if let p = plan(u) { routineUses[k].applied = apply(u, p, routine: true) }
         }
         finishExercises()
         try buildLibrary()
@@ -244,7 +252,7 @@ final class Importer {
             p.parts = fs.map { ($0.template.title, $0.first, $0.last, $0.workouts.count) }
             p.last = fs.map(\.last).max()
             for f in fs { p.gyms.merge(f.gyms, uniquingKeysWith: +) }
-            add(p)
+            for q in splitByBrand(p, facts) { add(q) }
         }
         // Custom templates never used still become exercises.
         for t in hevy.templates.values.sorted(by: { $0.title < $1.title }) where (t.isCustom ?? false) && facts[t.id] == nil {
@@ -262,7 +270,63 @@ final class Importer {
 
     private func add(_ p: Plan) {
         plans.append(p)
-        for t in p.templates { planOf[t] = p }
+        for t in p.templates { planOf[t, default: []].append(p) }
+    }
+
+    /// The exercise a use went into: its brand's when its template was split, else the one used last.
+    func plan(_ u: Use) -> Plan? {
+        guard let ps = planOf[u.entry.exerciseTemplateId] else { return nil }
+        if ps.count == 1 { return ps[0] }
+        let key = machineKey(u)
+        return ps.first { $0.part == key } ?? ps.max { ($0.last ?? "", $0.part ?? "") < ($1.last ?? "", $1.part ?? "") }
+    }
+
+    /// What tells machines apart: the brand when all of a gym's machines are one, else the gym itself;
+    /// nil for an unknown gym.
+    func machineKey(_ u: Use) -> String? {
+        guard let g = finder.exerciseGym(u.entry.title) ?? u.gym else { return nil }
+        let gym = rules.gyms[g]
+        return (gym.brandAllMachines ? gym.brand : nil) ?? gym.name
+    }
+
+    /// A weighted machine or cable exercise done on several brands' machines becomes one exercise per brand.
+    func splitByBrand(_ p: Plan, _ facts: [String: Facts]) -> [Plan] {
+        guard [.machine, .cable].contains(p.exercise.equipment), p.exercise.type.hasKg else { return [p] }
+        var groups: [String: [Int]] = [:]
+        var loose: [Int] = []
+        for i in p.uses {
+            if let k = machineKey(uses[i]) { groups[k, default: []].append(i) } else { loose.append(i) }
+        }
+        guard groups.count > 1 else { return [p] }
+        let lastDay = { (k: String) in groups[k]!.map { self.uses[$0].day }.max()! }
+        let latest = groups.keys.max { (lastDay($0), $0) < (lastDay($1), $1) }!
+        groups[latest]! += loose
+        let parts = groups.keys.sorted().map { k in
+            let us = groups[k]!.sorted()
+            let templates = p.templates.filter { t in us.contains { uses[$0].entry.exerciseTemplateId == t } }
+            var ex = p.exercise
+            ex.id = UUID()
+            ex.hevyId = templates[0]
+            let q = Plan(exercise: ex, templates: templates, titles: templates.map { facts[$0]!.template.title }, rigging: p.rigging)
+            q.part = k
+            q.votes = p.votes
+            q.lrUses = p.lrUses
+            q.uses = us
+            q.first = us.map { uses[$0].day }.min()
+            q.last = us.map { uses[$0].day }.max()
+            for t in templates {
+                let tu = us.filter { uses[$0].entry.exerciseTemplateId == t }
+                let workouts = Set(tu.compactMap { uses[$0].workout })
+                q.parts.append((facts[t]!.template.title, tu.map { uses[$0].day }.min()!, tu.map { uses[$0].day }.max()!, workouts.count))
+            }
+            var seen = Set<Int>()
+            for i in us {
+                if let w = uses[i].workout, seen.insert(w).inserted, let g = uses[i].gym { q.gyms[g, default: 0] += 1 }
+            }
+            return q
+        }
+        splits.append((p.titles.last!, parts))
+        return parts
     }
 
     /// Templates that are one exercise renamed over time, in date order.
@@ -317,50 +381,47 @@ final class Importer {
         return "weight_reps"
     }
 
-    /// Clean names: gym marks off, the brand in front, capitals fixed; clashes told apart.
+    /// Clean names: gym marks off, the brand in front of machines, capitals fixed; clashes told apart.
     func nameExercises() {
-        var markerGym: [ObjectIdentifier: Int] = [:]
+        var home: [ObjectIdentifier: Int] = [:]
         for p in plans {
             let latest = p.titles.last!
             let (stripped, gym) = finder.stripMarkers(latest)
             var name = Names.tidy(stripped)
             if name.isEmpty { name = latest }
-            let machine = [.machine, .cable].contains(p.exercise.equipment)
-            if machine {
-                p.exercise.brand = brand(p) ?? ""
+            if [.machine, .cable].contains(p.exercise.equipment), p.exercise.type.hasKg {
+                let b = brand(p) ?? ""
+                p.exercise.brand = b
+                if !b.isEmpty, !name.lowercased().hasPrefix(b.lowercased()) { name = b + " " + name }
             }
-            if let gym {
-                markerGym[ObjectIdentifier(p)] = gym
-                if machine, let b = rules.gyms[gym].brand, !name.lowercased().hasPrefix(b.lowercased()) {
-                    name = b + " " + name
-                }
-            }
+            home[ObjectIdentifier(p)] = gym ?? p.gyms.max { ($0.value, $1.key) < ($1.value, $0.key) }?.key
             p.exercise.name = name
         }
-        // Names that clash after the marks came off get their gym back.
+        // Names that still clash: one with no gym to tell it by keeps it, else the most used; the others get their gym.
         for _ in 0 ..< 3 {
             let groups = Dictionary(grouping: plans) { $0.exercise.name.lowercased() }.filter { $0.value.count > 1 }
             if groups.isEmpty { break }
             for (_, ps) in groups {
-                for p in ps {
-                    guard let g = markerGym[ObjectIdentifier(p)] else { continue }
-                    if let n = rules.gyms[g].name, !p.exercise.name.hasSuffix("(\(n))") {
+                let bare = { (p: Plan) in home[ObjectIdentifier(p)].flatMap { self.rules.gyms[$0].name } == nil ? 1 : 0 }
+                let keep = ps.max { (bare($0), $0.uses.count) < (bare($1), $1.uses.count) }!
+                for p in ps where p !== keep {
+                    if let g = home[ObjectIdentifier(p)], let n = rules.gyms[g].name, !p.exercise.name.hasSuffix("(\(n))") {
                         p.exercise.name += " (\(n))"
                     } else {
                         p.exercise.name = p.titles.last!
                     }
-                    markerGym[ObjectIdentifier(p)] = nil
+                    home[ObjectIdentifier(p)] = nil
                 }
             }
         }
         for p in plans { p.renamed = !p.titles.contains(p.exercise.name) || p.templates.count > 1 }
     }
 
-    /// Brands only go on machines: one named for a gym gets that gym's brand, and so does every machine
-    /// used only at a gym whose machines are all one brand.
+    /// Brands only go on weighted machines: one named for a gym gets that gym's brand (or none), and so does every machine
+    /// used only at a gym whose machines are all one brand (or split down to one).
     private func brand(_ p: Plan) -> String? {
         for t in p.titles.reversed() {
-            if let g = finder.exerciseGym(t), let b = rules.gyms[g].brand { return b }
+            if let g = finder.exerciseGym(t) { return rules.gyms[g].brand }
         }
         let gyms = Set(p.gyms.keys)
         if gyms.count == 1, let g = gyms.first, rules.gyms[g].brandAllMachines { return rules.gyms[g].brand }
@@ -377,7 +438,7 @@ final class Importer {
     func countSettings() {
         let all = uses.map { ($0, false) } + routineUses.map { ($0.use, true) }
         for (u, _) in all {
-            guard let p = planOf[u.entry.exerciseTemplateId] else { continue }
+            guard let p = plan(u) else { continue }
             for line in u.lines where !line.plan {
                 for f in line.frags {
                     let n: String?
@@ -675,23 +736,23 @@ final class Importer {
         }
         var names: [ObjectIdentifier: [String]] = [:]
         for (i, u) in uses.enumerated() {
-            guard let p = planOf[u.entry.exerciseTemplateId], let a = applied[i] else { continue }
+            guard let p = plan(u), let a = applied[i] else { continue }
             for (n, _) in a.settings where !(names[ObjectIdentifier(p)] ?? []).contains(n) { names[ObjectIdentifier(p), default: []].append(n) }
         }
         for r in routineUses {
-            guard let p = planOf[r.use.entry.exerciseTemplateId], let a = r.applied else { continue }
+            guard let p = plan(r.use), let a = r.applied else { continue }
             for (n, _) in a.settings where !(names[ObjectIdentifier(p)] ?? []).contains(n) { names[ObjectIdentifier(p), default: []].append(n) }
         }
         let prevExercises = Dictionary((previous?.exercises ?? []).map { ($0.id, $0) }, uniquingKeysWith: { a, _ in a })
         // Ids from the last run: an exercise keeps its first template's, then any free one of its others.
         var taken = Set<UUID>()
-        func old(_ t: String) -> UUID? {
-            previousMap.exercises[t] ?? previous?.exercises.first { $0.hevyId == t }?.id
+        func old(_ p: Plan, _ t: String) -> UUID? {
+            previousMap.exercises[p.mapKey(t)] ?? (p.part == nil ? previous?.exercises.first { $0.hevyId == t }?.id : nil)
         }
         var kept: [ObjectIdentifier: UUID] = [:]
-        for p in plans { if let id = old(p.templates[0]), taken.insert(id).inserted { kept[ObjectIdentifier(p)] = id } }
+        for p in plans { if let id = old(p, p.templates[0]), taken.insert(id).inserted { kept[ObjectIdentifier(p)] = id } }
         for p in plans where kept[ObjectIdentifier(p)] == nil {
-            if let id = p.templates.dropFirst().lazy.compactMap(old).first(where: { !taken.contains($0) }) {
+            if let id = p.templates.dropFirst().lazy.compactMap({ old(p, $0) }).first(where: { !taken.contains($0) }) {
                 taken.insert(id)
                 kept[ObjectIdentifier(p)] = id
             }
@@ -744,7 +805,7 @@ final class Importer {
             map.routines[r.id] = id
             var exs: [WorkoutExercise] = []
             for ru in routineUses where ru.routine == ri {
-                guard let p = planOf[ru.use.entry.exerciseTemplateId], let a = ru.applied else { continue }
+                guard let p = plan(ru.use), let a = ru.applied else { continue }
                 let n = exs.count
                 let reuse = old.flatMap { n < $0.exercises.count && $0.exercises[n].exerciseId == p.exercise.id ? $0.exercises[n] : nil }
                 exs.append(entry(p, a, ru.use.entry, reuse: reuse))
@@ -764,7 +825,7 @@ final class Importer {
             map.workouts[w.id] = id
             var exs: [WorkoutExercise] = []
             for i in byWorkout[wi] ?? [] {
-                guard let p = planOf[uses[i].entry.exerciseTemplateId], let a = applied[i] else { continue }
+                guard let p = plan(uses[i]), let a = applied[i] else { continue }
                 let n = exs.count
                 let reuse = old.flatMap { n < $0.exercises.count && $0.exercises[n].exerciseId == p.exercise.id ? $0.exercises[n] : nil }
                 exs.append(entry(p, a, uses[i].entry, reuse: reuse))
@@ -777,7 +838,7 @@ final class Importer {
         }
         library.workouts.sort { $0.start > $1.start }
         library.exercises = plans.map(\.exercise).sorted { $0.name.lowercased() < $1.name.lowercased() }
-        for p in plans { for t in p.templates { map.exercises[t] = p.exercise.id } }
+        for p in plans { for t in p.templates { map.exercises[p.mapKey(t)] = p.exercise.id } }
         library.settings = Settings(restSeconds: prev.settings.restSeconds, warmupRestSeconds: prev.settings.warmupRestSeconds,
                                     gymId: rules.currentGym.flatMap { gymIds[$0] })
     }
