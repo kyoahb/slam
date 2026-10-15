@@ -17,10 +17,23 @@ def tone(freq, start, decay, partials, length):
     return out
 
 
-def write(name, notes, length, peak):
+def beep(freq, start, dur, partials, length):
+    """An electronic beep: steady while it lasts, with 5 ms ramps so it does not click."""
+    out = [0.0] * int(length * RATE)
+    n, ramp = int(dur * RATE), int(0.005 * RATE)
+    for k in range(n):
+        i = int(start * RATE) + k
+        if i >= len(out):
+            break
+        t = k / RATE
+        out[i] = min(1.0, k / ramp, (n - k) / ramp) * sum(a * math.sin(2 * math.pi * freq * m * t) for m, a in partials)
+    return out
+
+
+def write(name, notes, length, peak, voice=tone):
     mix = [0.0] * int(length * RATE)
     for n in notes:
-        for i, v in enumerate(tone(*n, length)):
+        for i, v in enumerate(voice(*n, length)):
             mix[i] += v
     top = max(abs(v) for v in mix) or 1
     fade = int(0.03 * RATE)
@@ -36,10 +49,10 @@ def write(name, notes, length, peak):
 
 
 soft = [(1, 1.0), (2, 0.18), (3.01, 0.05)]
-bell = [(1, 1.0), (2, 0.25), (2.76, 0.12), (5.4, 0.04)]
+square = [(1, 1.0), (3, 0.33), (5, 0.2), (7, 0.14)]
 # Set ticked: one short, quiet ding.
 write("set", [(1318.5, 0.0, 0.09, soft)], 0.4, 0.28)
 # New record: a quick rising arpeggio.
 write("record", [(1046.5, 0.0, 0.12, soft), (1318.5, 0.07, 0.12, soft), (1568.0, 0.14, 0.2, soft)], 0.8, 0.32)
-# Rest over: two soft chime notes.
-write("rest", [(784.0, 0.0, 0.35, bell), (1046.5, 0.22, 0.4, bell)], 1.5, 0.4)
+# Rest over: beep-beep-beep twice, loud and nothing like the bells above.
+write("rest", [(1174.7, g + b * 0.17, 0.1, square) for g in (0.0, 0.8) for b in range(3)], 1.4, 0.95, voice=beep)
