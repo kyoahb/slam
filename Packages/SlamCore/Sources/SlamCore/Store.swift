@@ -3,6 +3,7 @@ import Foundation
 /// Everything Slam keeps.
 public struct Library: Sendable {
     public var exercises: [Exercise] = []
+    public var machines: [Machine] = []
     public var folders: [Folder] = []
     public var routines: [Routine] = []
     public var gyms: [Gym] = []
@@ -12,9 +13,10 @@ public struct Library: Sendable {
     /// The workout in progress, if any.
     public var active: Workout?
 
-    public init(exercises: [Exercise] = [], folders: [Folder] = [], routines: [Routine] = [], gyms: [Gym] = [],
-                settings: Settings = Settings(), workouts: [Workout] = [], active: Workout? = nil) {
+    public init(exercises: [Exercise] = [], machines: [Machine] = [], folders: [Folder] = [], routines: [Routine] = [],
+                gyms: [Gym] = [], settings: Settings = Settings(), workouts: [Workout] = [], active: Workout? = nil) {
         self.exercises = exercises
+        self.machines = machines
         self.folders = folders
         self.routines = routines
         self.gyms = gyms
@@ -42,6 +44,7 @@ public struct FileStore: Sendable {
         try prepare()
         var lib = Library()
         lib.exercises = read([Exercise].self, "exercises.json") ?? []
+        lib.machines = read([Machine].self, "machines.json") ?? []
         if let r = read(RoutineFile.self, "routines.json") {
             lib.folders = r.folders
             lib.routines = r.routines
@@ -58,6 +61,7 @@ public struct FileStore: Sendable {
 
     public func save(_ lib: Library) throws {
         try saveExercises(lib.exercises)
+        try saveMachines(lib.machines)
         try saveRoutines(lib.folders, lib.routines)
         try saveGyms(lib.gyms)
         try saveSettings(lib.settings)
@@ -66,6 +70,7 @@ public struct FileStore: Sendable {
     }
 
     public func saveExercises(_ v: [Exercise]) throws { try write(v, "exercises.json") }
+    public func saveMachines(_ v: [Machine]) throws { try write(v, "machines.json") }
     public func saveRoutines(_ folders: [Folder], _ routines: [Routine]) throws {
         try write(RoutineFile(folders: folders, routines: routines), "routines.json")
     }
@@ -95,7 +100,7 @@ public struct FileStore: Sendable {
     /// Deletes everything kept here except what sync remembers, so the deletions can still reach the server.
     public func wipe() throws {
         let fm = FileManager.default
-        for name in ["exercises.json", "routines.json", "gyms.json", "settings.json", "active.json", "workouts", "photos"] {
+        for name in ["exercises.json", "machines.json", "routines.json", "gyms.json", "settings.json", "active.json", "workouts", "photos"] {
             let url = root.appendingPathComponent(name)
             if fm.fileExists(atPath: url.path) { try fm.removeItem(at: url) }
         }
@@ -106,13 +111,14 @@ public struct FileStore: Sendable {
     public func export(_ lib: Library) throws -> Data {
         struct Export: Codable {
             var exercises: [Exercise]
+            var machines: [Machine]
             var folders: [Folder]
             var routines: [Routine]
             var gyms: [Gym]
             var settings: Settings
             var workouts: [Workout]
         }
-        return try Self.encoder.encode(Export(exercises: lib.exercises, folders: lib.folders, routines: lib.routines,
+        return try Self.encoder.encode(Export(exercises: lib.exercises, machines: lib.machines, folders: lib.folders, routines: lib.routines,
                                               gyms: lib.gyms, settings: lib.settings, workouts: lib.workouts))
     }
 

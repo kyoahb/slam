@@ -180,8 +180,13 @@ public enum Demo {
             active.exercises[0].note = ""
         }
 
-        return Library(exercises: exercises, folders: [folder], routines: routines,
-                       gyms: [anytime, gymGroup], settings: Settings(gymId: anytime.id), workouts: workouts,
-                       active: active)
+        var lib = Library(exercises: exercises, folders: [folder], routines: routines,
+                          gyms: [anytime, gymGroup], settings: Settings(gymId: anytime.id), workouts: workouts,
+                          active: active)
+        // The leg extension's machine, shared with the both-legs version.
+        let machine = Machine(name: "Precor Leg Extension", from: legExt)
+        lib.save(legExt.moved(to: machine), new: machine)
+        lib.save(Exercise(name: "Precor Leg Extension Bilateral", primary: .quadriceps).moved(to: machine))
+        return lib
     }
 }

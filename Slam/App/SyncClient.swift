@@ -58,7 +58,7 @@ extension AppModel {
 
     /// Everything the phone has, as it would sync.
     var library: Library {
-        Library(exercises: exercises, folders: folders, routines: routines, gyms: gyms, settings: settings,
+        Library(exercises: exercises, machines: machines, folders: folders, routines: routines, gyms: gyms, settings: settings,
                 workouts: workouts, active: editor?.workout)
     }
 
@@ -125,9 +125,13 @@ extension AppModel {
         let kinds = Set(changes.map(\.kind))
         if kinds.contains(.exercise) {
             exercises = lib.exercises
-            reindex()
             try? store.saveExercises(exercises)
         }
+        if kinds.contains(.machine) {
+            machines = lib.machines
+            try? store.saveMachines(machines)
+        }
+        if kinds.contains(.exercise) || kinds.contains(.machine) { reindex() }
         if kinds.contains(.folder) || kinds.contains(.routine) {
             folders = lib.folders
             routines = lib.routines
@@ -151,7 +155,7 @@ extension AppModel {
             }
             workouts = lib.workouts
         }
-        if kinds.contains(.exercise) || kinds.contains(.workout) { recomputeRecords() }
+        if kinds.contains(.exercise) || kinds.contains(.machine) || kinds.contains(.workout) { recomputeRecords() }
     }
 
     /// Photos the server lacks go up; ones this phone lacks come down.

@@ -113,13 +113,15 @@ public struct Exercise: Codable, Hashable, Identifiable, Sendable {
     public var bar: Double?
     public var brand: String
     public var settings: [Configurable]
+    /// The machine it is done on, which holds the weights and setup above for every exercise on it.
+    public var machineId: UUID?
     public var photo: String?
     public var hevyId: String?
 
     public init(id: UUID = UUID(), name: String, type: ExerciseType = .weightReps, equipment: Equipment = .machine,
                 primary: Muscle = .other, secondary: [Muscle] = [], unilateral: Bool = false, stack: [Double] = [],
                 addOn: Double? = nil, pin: Bool = false, plateSides: Int = 0, bar: Double? = nil, brand: String = "",
-                settings: [Configurable] = [], photo: String? = nil, hevyId: String? = nil) {
+                settings: [Configurable] = [], machineId: UUID? = nil, photo: String? = nil, hevyId: String? = nil) {
         self.id = id
         self.name = name
         self.type = type
@@ -134,6 +136,7 @@ public struct Exercise: Codable, Hashable, Identifiable, Sendable {
         self.bar = bar
         self.brand = brand
         self.settings = settings
+        self.machineId = machineId
         self.photo = photo
         self.hevyId = hevyId
     }
@@ -154,6 +157,7 @@ public struct Exercise: Codable, Hashable, Identifiable, Sendable {
         bar = try c.decodeIfPresent(Double.self, forKey: .bar)
         brand = try c.value(.brand, "")
         settings = try c.value(.settings, [])
+        machineId = try c.decodeIfPresent(UUID.self, forKey: .machineId)
         photo = try c.decodeIfPresent(String.self, forKey: .photo)
         hevyId = try c.decodeIfPresent(String.self, forKey: .hevyId)
     }

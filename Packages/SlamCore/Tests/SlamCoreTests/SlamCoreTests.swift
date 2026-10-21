@@ -70,16 +70,6 @@ final class LoadTests: XCTestCase {
         let again = try FileStore.decoder.decode(WorkSet.self, from: FileStore.encoder.encode(set))
         XCTAssertEqual(again.load, set.load)
     }
-
-    func testStarterExercisesGoUnlessUsedOrChanged() {
-        var lib = Library(exercises: [Exercise(name: "Squat (Barbell)", equipment: .barbell),
-                                      Exercise(name: "Leg Press (Machine)"),
-                                      Exercise(name: "Leg Extension (Machine)", stack: [5, 10]),
-                                      Exercise(name: "Precor Leg Extension")])
-        lib.workouts = [Workout(exercises: [WorkoutExercise(exerciseId: lib.exercises[1].id, sets: [WorkSet(kg: 50, reps: 8)])])]
-        XCTAssertEqual(lib.removeUnusedStarter(), 1)
-        XCTAssertEqual(lib.exercises.map(\.name), ["Leg Press (Machine)", "Leg Extension (Machine)", "Precor Leg Extension"])
-    }
 }
 
 final class PreviousTests: XCTestCase {
@@ -208,7 +198,8 @@ final class StoreTests: XCTestCase {
         XCTAssertEqual(back.routines.map(\.name), ["FB A", "FB B", "FB C", "FB D"])
         XCTAssertEqual(back.active?.exercises.first?.sets[1].kg, 111)
         XCTAssertEqual(back.active?.exercises.first?.sets[1].load, Load(base: 109, addOn: 2))
-        XCTAssertEqual(back.exercises.first?.stack.count, 16)
+        XCTAssertEqual(back.resolved.first?.stack.count, 16)
+        XCTAssertEqual(back.machines, lib.machines)
 
         // A set written by an older version with fewer keys (and the old plate breakdown).
         let old = #"{"id":"7C9E6679-7425-40DE-944B-E07FC1F90AE7","kg":20,"reps":5,"load":{"base":20,"addOn":0,"plates":[]}}"#
@@ -218,7 +209,7 @@ final class StoreTests: XCTestCase {
         // An exercise from before the pin was kept has none.
         let ex = try FileStore.decoder.decode(Exercise.self, from: Data(#"{"id":"7C9E6679-7425-40DE-944B-E07FC1F90AE7","name":"Row"}"#.utf8))
         XCTAssertFalse(ex.pin)
-        XCTAssertTrue(back.exercises.first?.pin ?? false)
+        XCTAssertTrue(back.resolved.first?.pin ?? false)
     }
 
     func testWipeKeepsWhatSyncRemembers() throws {
@@ -243,7 +234,7 @@ final class StoreTests: XCTestCase {
 final class DemoTests: XCTestCase {
     func testDemoHistoryHasRecordsAndWeeks() {
         let lib = Demo.library()
-        let byId = Dictionary(uniqueKeysWithValues: lib.exercises.map { ($0.id, $0) })
+        let byId = Dictionary(uniqueKeysWithValues: lib.resolved.map { ($0.id, $0) })
         XCTAssertGreaterThan(lib.workouts.count, 30)
         let records = Records.all(lib.workouts, exercises: byId)
         XCTAssertGreaterThan(records.values.reduce(0) { $0 + $1.count }, 10)
@@ -260,7 +251,7 @@ final class DemoTests: XCTestCase {
 
     func testRoutineDiffAndApply() {
         let lib = Demo.library()
-        let byId = Dictionary(uniqueKeysWithValues: lib.exercises.map { ($0.id, $0) })
+        let byId = Dictionary(uniqueKeysWithValues: lib.resolved.map { ($0.id, $0) })
         let routine = lib.routines[0]
         var w = Workout.from(routine, exercises: byId, history: lib.workouts, gymId: nil)
         for i in w.exercises.indices { for j in w.exercises[i].sets.indices { w.exercises[i].sets[j].done = true } }
@@ -381,5 +372,106 @@ final class SyncTests: XCTestCase {
         XCTAssertTrue(Sync.safeFile("A1B2-c3.jpg"))
         XCTAssertFalse(Sync.safeFile("../x.jpg"))
         XCTAssertFalse(Sync.safeFile(".hidden"))
+    }
+}
+
+final class MachineTests: XCTestCase {
+    private let seat = Configurable(name: "Seat")
+    private let pad = Configurable(name: "Pad")
+
+    /// An invented leg extension done both legs and one leg, each with its own Seat so far.
+    private func lib() -> (Library, Exercise, Exercise) {
+        let both = Exercise(name: "Test Leg Extension", stack: Exercise.slots(from: 5, step: 5, to: 50), brand: "Test",
+                            settings: [seat])
+        let one = Exercise(name: "Test Leg Extension Single", unilateral: true, settings: [Configurable(name: "seat "), pad])
+        var e = WorkoutExercise(exerciseId: one.id, sets: [WorkSet(kg: 20, reps: 10, done: true)])
+        e[setting: one.settings[0].id] = "4"
+        let w = Workout(title: "Legs", start: Date(timeIntervalSince1970: 1_000_000), exercises: [e])
+        return (Library(exercises: [both, one], routines: [Routine(name: "Legs", exercises: [e])], workouts: [w]), both, one)
+    }
+
+    func testMovingOntoAMachineSharesItsWeightsAndKeepsLoggedSetup() {
+        var (l, both, one) = lib()
+        let m = Machine(name: "Test Leg Extension", from: both)
+        both.machineId = m.id
+        l.save(both, new: m)
+        XCTAssertEqual(l.exercises[0].stack, [])
+        XCTAssertEqual(l.resolved[0].stack, both.stack)
+
+        let moved = l.resolved[1].moved(to: l.machine(m.id)!)
+        XCTAssertEqual(moved.stack, both.stack)
+        XCTAssertEqual(moved.settings.map(\.name), ["Seat", "Pad"])
+        let touched = l.save(moved)
+        XCTAssertEqual(touched.machine, m.id)
+        XCTAssertTrue(touched.routines)
+        XCTAssertEqual(touched.workouts, [l.workouts[0].id])
+        // The single-leg seat value now sits under the machine's Seat.
+        XCTAssertEqual(l.workouts[0].exercises[0][setting: seat.id], "4")
+        XCTAssertEqual(l.routines[0].exercises[0][setting: seat.id], "4")
+        XCTAssertEqual(l.resolved[0].settings.map(\.name), ["Seat", "Pad"])
+        XCTAssertEqual(l.resolved[0].brand, "Test")
+        _ = one
+    }
+
+    func testEditsGoToTheMachineAndOffKeepsACopy() {
+        var (l, both, one) = lib()
+        let m = Machine(name: "Test Leg Extension", from: both)
+        both.machineId = m.id
+        l.save(both, new: m)
+        l.save(l.resolved[1].moved(to: l.machine(m.id)!))
+        var edit = l.resolved[1]
+        edit.stack = [10, 20, 30]
+        XCTAssertEqual(l.save(edit).machine, m.id)
+        XCTAssertEqual(l.resolved[0].stack, [10, 20, 30])
+        // An edit that changes nothing on the machine leaves it alone.
+        var renamed = l.resolved[1]
+        renamed.name = "Test Leg Extension One Leg"
+        XCTAssertNil(l.save(renamed).machine)
+
+        var off = l.resolved[1]
+        off.machineId = nil
+        l.save(off)
+        XCTAssertEqual(l.exercises[1].stack, [10, 20, 30])
+        XCTAssertEqual(l.exercises[1].settings.map(\.name), ["Seat", "Pad"])
+        XCTAssertEqual(l.resolved[0].stack, [10, 20, 30])
+        _ = one
+    }
+
+    func testNewExerciseStartsWithTheMachinesLastSetup() {
+        var (l, _, one) = lib()
+        let m = Machine(name: "Test Leg Extension", from: one)
+        var on = one
+        on.machineId = m.id
+        l.save(on, new: m)
+        let fresh = Exercise(name: "Test Leg Extension Pause").moved(to: l.machine(m.id)!)
+        XCTAssertNil(l.save(fresh).machine)
+        let byId = Dictionary(uniqueKeysWithValues: l.resolved.map { ($0.id, $0) })
+        let last = Previous.onMachine(m.id, in: l.workouts, exercises: byId)
+        let e = WorkoutExercise.adding(byId[fresh.id]!, last: nil, onMachine: last)
+        XCTAssertEqual(e[setting: one.settings[0].id], "4")
+        // Its own history comes first: nothing from the machine when it was done before.
+        var routine = Routine(name: "Pause", exercises: [WorkoutExercise(exerciseId: fresh.id)])
+        XCTAssertEqual(Workout.from(routine, exercises: byId, history: l.workouts, gymId: nil).exercises[0][setting: one.settings[0].id], "4")
+        routine.exercises = [WorkoutExercise(exerciseId: one.id)]
+        XCTAssertEqual(Workout.from(routine, exercises: byId, history: l.workouts, gymId: nil).exercises[0][setting: one.settings[0].id], "")
+    }
+
+    func testMachinesSyncAndStore() throws {
+        var (l, both, _) = lib()
+        let m = Machine(name: "Test Leg Extension", from: both)
+        both.machineId = m.id
+        l.save(both, new: m)
+        var copy = Library()
+        for r in Sync.records(l).values {
+            Sync.apply(try FileStore.decoder.decode(SyncRecord.self, from: FileStore.encoder.encode(r)), to: &copy)
+        }
+        XCTAssertEqual(copy.machines, l.machines)
+        XCTAssertTrue(SyncRecord(kind: .machine, id: m.id.uuidString).deleted)
+
+        let dir = FileManager.default.temporaryDirectory.appendingPathComponent(UUID().uuidString, isDirectory: true)
+        defer { try? FileManager.default.removeItem(at: dir) }
+        let store = FileStore(root: dir)
+        try store.save(l)
+        XCTAssertEqual(try store.load().resolved, l.resolved)
     }
 }

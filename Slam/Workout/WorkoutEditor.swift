@@ -473,9 +473,11 @@ final class WorkoutEditor: Identifiable {
 
     func add(_ list: [Exercise]) {
         for ex in list {
-            let previous = app.lastTime(ex.id, excluding: workout.id, before: mode == .past ? workout.start : nil)
+            let before = mode == .past ? workout.start : nil
+            let previous = app.lastTime(ex.id, excluding: workout.id, before: before)
             lastCache[ex.id] = .some(previous)
-            var e = WorkoutExercise.adding(ex, last: previous)
+            let machine = previous == nil ? app.lastOnMachine(ex.machineId, excluding: workout.id, before: before) : nil
+            var e = WorkoutExercise.adding(ex, last: previous, onMachine: machine)
             if mode == .past {
                 for i in e.sets.indices { e.sets[i].done = false }
             }
@@ -492,13 +494,18 @@ final class WorkoutEditor: Identifiable {
         guard let p = pos(entry) else { return }
         if focus?.entry == entry { select(nil) }
         var e = workout.exercises[p.e]
+        // Same machine: the seat is already set.
+        let sameMachine = ex.machineId != nil && app.byId[e.exerciseId]?.machineId == ex.machineId
         e.exerciseId = ex.id
         e.note = ""
-        e.settings = [:]
+        if !sameMachine { e.settings = [:] }
         e.sets = e.sets.map { WorkSet(kind: $0.kind) }
         e.watch = nil
-        lastCache[ex.id] = .some(app.lastTime(ex.id, excluding: workout.id, before: mode == .past ? workout.start : nil))
-        e.carrySettings(ex, last: lastCache[ex.id] ?? nil)
+        let before = mode == .past ? workout.start : nil
+        let previous = app.lastTime(ex.id, excluding: workout.id, before: before)
+        lastCache[ex.id] = .some(previous)
+        let machine = previous == nil && !sameMachine ? app.lastOnMachine(ex.machineId, excluding: workout.id, before: before) : nil
+        e.carrySettings(ex, last: previous, onMachine: machine)
         workout.exercises[p.e] = e
         changed()
     }

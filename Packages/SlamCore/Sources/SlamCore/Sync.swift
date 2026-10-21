@@ -2,7 +2,7 @@ import Foundation
 
 /// What syncs between the phone and the Slam server, one record at a time.
 public enum SyncKind: String, Codable, CaseIterable, Sendable {
-    case exercise, folder, routine, gym, workout, settings
+    case exercise, machine, folder, routine, gym, workout, settings
     /// The workout in progress: the phone sends it, nothing else changes it.
     case active
 }
@@ -17,6 +17,7 @@ public struct SyncRecord: Codable, Hashable, Sendable {
     /// The server's order of changes.
     public var seq: Int
     public var exercise: Exercise?
+    public var machine: Machine?
     public var folder: Folder?
     public var routine: Routine?
     public var gym: Gym?
@@ -31,7 +32,7 @@ public struct SyncRecord: Codable, Hashable, Sendable {
     }
 
     public var key: String { kind.rawValue + "/" + id }
-    public var deleted: Bool { exercise == nil && folder == nil && routine == nil && gym == nil && workout == nil && settings == nil }
+    public var deleted: Bool { exercise == nil && machine == nil && folder == nil && routine == nil && gym == nil && workout == nil && settings == nil }
 
     /// The same record, deleted.
     public func tombstone(at date: Date = Date()) -> SyncRecord { SyncRecord(kind: kind, id: id, updated: date, seq: seq) }
@@ -92,6 +93,7 @@ public enum Sync {
         var out: [String: SyncRecord] = [:]
         func add(_ r: SyncRecord) { out[r.key] = r }
         for e in lib.exercises { var r = SyncRecord(kind: .exercise, id: e.id.uuidString); r.exercise = e; add(r) }
+        for m in lib.machines { var r = SyncRecord(kind: .machine, id: m.id.uuidString); r.machine = m; add(r) }
         for f in lib.folders { var r = SyncRecord(kind: .folder, id: f.id.uuidString); r.folder = f; add(r) }
         for x in lib.routines { var r = SyncRecord(kind: .routine, id: x.id.uuidString); r.routine = x; add(r) }
         for g in lib.gyms { var r = SyncRecord(kind: .gym, id: g.id.uuidString); r.gym = g; add(r) }
@@ -117,6 +119,7 @@ public enum Sync {
         }
         switch r.kind {
         case .exercise: put(r.exercise, &lib.exercises)
+        case .machine: put(r.machine, &lib.machines)
         case .folder: put(r.folder, &lib.folders)
         case .routine: put(r.routine, &lib.routines)
         case .gym: put(r.gym, &lib.gyms)
@@ -194,6 +197,7 @@ extension FileStore {
     public func saved(_ r: SyncRecord) -> Date? {
         let name = switch r.kind {
         case .exercise: "exercises.json"
+        case .machine: "machines.json"
         case .folder, .routine: "routines.json"
         case .gym: "gyms.json"
         case .settings: "settings.json"

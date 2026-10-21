@@ -8,6 +8,8 @@ let usage = """
     slam import-hevy <raw-dir> <out>    turn pulled Hevy pages into a Slam library plus a dry-run report
     slam replace <library-dir>          make the server's data (SLAM_DATA) exactly that library; run with the
                                         server stopped; refuses to drop a workout the library lacks
+    slam machines <file> [--apply]      put exercises onto shared machines from a list; shows what would change
+                                        unless --apply; run with the server stopped
     """
 
 let args = Array(CommandLine.arguments.dropFirst())
@@ -32,6 +34,17 @@ do {
         let now = await vault.library()
         print("\(written) records written, \(deleted) deleted. The server now has \(now.workouts.count) workouts, "
             + "\(now.exercises.count) exercises, \(now.routines.count) routines, \(now.folders.count) folders, \(now.gyms.count) gyms.")
+    case "machines" where args.count == 2 || (args.count == 3 && args[2] == "--apply"):
+        let groups = try MachineGroups.read(URL(fileURLWithPath: args[1]))
+        let vault = try Vault(root: URL(fileURLWithPath: ProcessInfo.processInfo.environment["SLAM_DATA"] ?? "/data", isDirectory: true))
+        var lib = await vault.library()
+        for line in try MachineGroups.apply(groups, to: &lib) { print(line) }
+        if args.count == 3 {
+            let (written, _) = try await vault.replace(with: lib)
+            print("\(written) records written.")
+        } else {
+            print("Nothing written: add --apply.")
+        }
     default:
         print(usage)
         exit(2)

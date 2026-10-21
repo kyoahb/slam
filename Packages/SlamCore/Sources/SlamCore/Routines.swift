@@ -9,7 +9,9 @@ public extension Workout {
             var e = WorkoutExercise(exerciseId: r.exerciseId, settings: r.settings, supersetId: r.supersetId)
             e.sets = r.sets.map { WorkSet(kind: $0.kind) }
             if e.sets.isEmpty { e.sets = [WorkSet()] }
-            e.carrySettings(exercises[r.exerciseId], last: Previous.last(r.exerciseId, in: history))
+            let last = Previous.last(r.exerciseId, in: history)
+            e.carrySettings(exercises[r.exerciseId], last: last,
+                            onMachine: last == nil ? Previous.onMachine(exercises[r.exerciseId]?.machineId, in: history, exercises: exercises) : nil)
             return e
         }
         return Workout(title: routine.name, start: now, gymId: gymId, routineId: routine.id, exercises: entries)
@@ -17,20 +19,27 @@ public extension Workout {
 }
 
 public extension WorkoutExercise {
-    /// Per-workout settings (incline, level) start as they were last time.
-    mutating func carrySettings(_ exercise: Exercise?, last: WorkoutExercise?) {
-        guard let exercise, let last else { return }
-        for c in exercise.settings where c.perWorkout && self[setting: c.id].isEmpty {
-            self[setting: c.id] = last[setting: c.id]
+    /// Per-workout settings (incline, level) start as they were last time. An exercise never done before starts
+    /// with its machine's setup as last used by another exercise on it (`onMachine`).
+    mutating func carrySettings(_ exercise: Exercise?, last: WorkoutExercise?, onMachine: WorkoutExercise? = nil) {
+        guard let exercise else { return }
+        if let last {
+            for c in exercise.settings where c.perWorkout && self[setting: c.id].isEmpty {
+                self[setting: c.id] = last[setting: c.id]
+            }
+        } else if let onMachine {
+            for c in exercise.settings where self[setting: c.id].isEmpty {
+                self[setting: c.id] = onMachine[setting: c.id]
+            }
         }
     }
 
     /// A new entry for an exercise added mid-workout: as many sets as last time, same types.
-    static func adding(_ exercise: Exercise, last: WorkoutExercise?) -> WorkoutExercise {
+    static func adding(_ exercise: Exercise, last: WorkoutExercise?, onMachine: WorkoutExercise? = nil) -> WorkoutExercise {
         var e = WorkoutExercise(exerciseId: exercise.id)
         e.sets = last?.sets.map { WorkSet(kind: $0.kind) } ?? [WorkSet()]
         if e.sets.isEmpty { e.sets = [WorkSet()] }
-        e.carrySettings(exercise, last: last)
+        e.carrySettings(exercise, last: last, onMachine: onMachine)
         return e
     }
 }

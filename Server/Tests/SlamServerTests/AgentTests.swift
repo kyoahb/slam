@@ -214,4 +214,41 @@ final class AgentTests: XCTestCase {
         XCTAssertEqual(chest.settings.first?.id, seat)
         XCTAssertEqual(lib.exercises.count, 3)
     }
+
+    func testMachinesShareWeightsAndSetup() async throws {
+        let vault = try await seeded()
+        var lib = await vault.library()
+        var single = Exercise(name: "Test Chest Press Single", primary: .chest, unilateral: true)
+        let back = Configurable(name: "seat")
+        single.settings = [back]
+        lib.exercises.append(single)
+        let group = MachineGroups.Group(name: "Test Chest Press", stack: Exercise.slots(from: 5, step: 5, to: 100), addOn: 2.5,
+                                        settings: ["Seat"], exercises: [press, single.id])
+        let lines = try MachineGroups.apply([group], to: &lib)
+        XCTAssertEqual(lines, ["Test Chest Press: 2 exercises, 20 weights, settings Seat"])
+        // Running the same list again changes nothing.
+        var again = lib
+        _ = try MachineGroups.apply([group], to: &again)
+        XCTAssertEqual(Sync.records(again).mapValues(\.fingerprint), Sync.records(lib).mapValues(\.fingerprint))
+        _ = try await vault.replace(with: lib)
+
+        let app = Application(router: Routes.router(vault, tokens))
+        let write: HTTPFields = [.authorization: "Bearer " + tokens.write]
+        try await app.test(.router) { client in
+            let change = """
+            {"id": "\(single.id.uuidString)", "stack_range": {"from": 4.5, "step": 4.5, "to": 90}}
+            """
+            try await client.execute(uri: "/v1/agent/exercises", method: .post, headers: write, body: self.body(change)) { response in
+                let e = try XCTUnwrap(self.json(response) as? [String: Any])
+                XCTAssertEqual(e["machine"] as? String, "Test Chest Press")
+                XCTAssertEqual(e["same_machine"] as? [String], ["Test Chest Press"])
+                XCTAssertEqual(e["settings"] as? [String], ["Seat"])
+            }
+        }
+        let now = await vault.library()
+        XCTAssertEqual(now.machines.count, 1)
+        XCTAssertEqual(now.resolved.first { $0.id == press }?.stack.first, 4.5)
+        XCTAssertEqual(now.exercises.first { $0.id == press }?.stack, [])
+        XCTAssertEqual(now.resolved.first { $0.id == single.id }?.settings.first?.id, seat)
+    }
 }

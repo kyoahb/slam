@@ -13,12 +13,16 @@ enum ProfileRoute: Hashable { case statistics, exercises, calendar, photos, sett
 
 @Observable @MainActor
 final class AppModel {
+    /// As stored: one on a machine leaves its weights and setup to the machine.
     var exercises: [Exercise] = []
+    var machines: [Machine] = []
     var folders: [Folder] = []
     var routines: [Routine] = []
     var gyms: [Gym] = []
     var settings = SlamCore.Settings()
     var workouts: [Workout] = []
+    /// Every exercise as used, with its machine's weights and setup.
+    private(set) var allExercises: [Exercise] = []
     private(set) var byId: [UUID: Exercise] = [:]
     private(set) var records: [UUID: [Record]] = [:]
 
@@ -53,6 +57,7 @@ final class AppModel {
         syncConfig = demo ? nil : SyncConfig.load()
         syncStatus.last = demo ? nil : store.loadSync().lastSync
         exercises = library.exercises
+        machines = library.machines
         folders = library.folders
         routines = library.routines
         gyms = library.gyms
@@ -81,13 +86,6 @@ final class AppModel {
             // -fresh: a new install with nothing logged, to see the empty screens.
             library = args.contains("-fresh") ? Library() : Demo.library()
             try? store.save(library)
-        } else {
-            // Once: the starter exercises earlier builds added, unless used or changed.
-            let marker = root.appendingPathComponent("starter-removed")
-            if !FileManager.default.fileExists(atPath: marker.path) {
-                if library.removeUnusedStarter() > 0 { try? store.saveExercises(library.exercises) }
-                FileManager.default.createFile(atPath: marker.path, contents: nil)
-            }
         }
         let model = AppModel(store: store, library: library, demo: demo)
         if demo { model.prepareDemo(args) }
@@ -99,7 +97,8 @@ final class AppModel {
     // MARK: Lookups
 
     func reindex() {
-        byId = Dictionary(exercises.map { ($0.id, $0) }, uniquingKeysWith: { a, _ in a })
+        allExercises = Library(exercises: exercises, machines: machines).resolved
+        byId = Dictionary(allExercises.map { ($0.id, $0) }, uniquingKeysWith: { a, _ in a })
     }
 
     func recomputeRecords() {
@@ -120,6 +119,30 @@ final class AppModel {
 
     func lastTime(_ exerciseId: UUID, excluding: UUID?, before: Date?) -> WorkoutExercise? {
         Previous.last(exerciseId, in: workouts, excluding: excluding, before: before)
+    }
+
+    func machine(_ id: UUID?) -> Machine? {
+        guard let id else { return nil }
+        return machines.first { $0.id == id }
+    }
+
+    func onMachine(_ id: UUID) -> [Exercise] {
+        allExercises.filter { $0.machineId == id }.sorted { $0.name.localizedCaseInsensitiveCompare($1.name) == .orderedAscending }
+    }
+
+    /// The setup last used on a machine by any exercise on it.
+    func lastOnMachine(_ id: UUID?, excluding: UUID?, before: Date?) -> WorkoutExercise? {
+        Previous.onMachine(id, in: workouts, exercises: byId, excluding: excluding, before: before)
+    }
+
+    /// The machine last used at this gym by an exercise with this equipment: where a new cable exercise most likely goes.
+    func lastMachine(_ equipment: Equipment) -> Machine? {
+        for w in workouts where w.gymId == settings.gymId {
+            for e in w.exercises {
+                if let ex = byId[e.exerciseId], ex.equipment == equipment, let m = machine(ex.machineId) { return m }
+            }
+        }
+        return nil
     }
 
     /// The routine's long-term note for an exercise; for empty workouts, the note from any routine that has one.
@@ -364,14 +387,37 @@ final class AppModel {
 
     // MARK: Exercises, gyms, settings
 
-    func save(exercise e: Exercise) {
-        if let i = exercises.firstIndex(where: { $0.id == e.id }) {
-            exercises[i] = e
-        } else {
-            exercises.append(e)
+    /// `e` as the form shows it, with its machine's weights and setup; `new` is a machine made for it in the form.
+    func save(exercise e: Exercise, new: Machine? = nil) {
+        var lib = library
+        let touched = lib.save(e, new: new)
+        exercises = lib.exercises
+        try? store.saveExercises(exercises)
+        if touched.machine != nil {
+            machines = lib.machines
+            try? store.saveMachines(machines)
+        }
+        if touched.routines {
+            routines = lib.routines
+            try? store.saveRoutines(folders, routines)
+        }
+        if !touched.workouts.isEmpty {
+            workouts = lib.workouts
+            for w in workouts where touched.workouts.contains(w.id) { try? store.save(workout: w) }
+        }
+        if !touched.moved.isEmpty {
+            if editor?.workout.move(touched.moved, of: e.id) == true { editor?.changed() }
+            _ = routineEditor?.workout.move(touched.moved, of: e.id)
         }
         reindex()
-        try? store.saveExercises(exercises)
+        syncSoon()
+    }
+
+    /// Only a machine nothing is done on.
+    func delete(machine m: Machine) {
+        guard !exercises.contains(where: { $0.machineId == m.id }) else { return }
+        machines.removeAll { $0.id == m.id }
+        try? store.saveMachines(machines)
         syncSoon()
     }
 
@@ -455,6 +501,7 @@ final class AppModel {
         showWorkout = false
         skipRest()
         exercises = []
+        machines = []
         folders = []
         routines = []
         gyms = []
@@ -471,8 +518,8 @@ final class AppModel {
     }
 
     func exportFile() -> URL? {
-        let lib = Library(exercises: exercises, folders: folders, routines: routines, gyms: gyms, settings: settings,
-                          workouts: workouts)
+        let lib = Library(exercises: exercises, machines: machines, folders: folders, routines: routines, gyms: gyms,
+                          settings: settings, workouts: workouts)
         guard let data = try? store.export(lib) else { return nil }
         let stamp = Date().formatted(.iso8601.year().month().day())
         let url = FileManager.default.temporaryDirectory.appendingPathComponent("slam-\(stamp).json")

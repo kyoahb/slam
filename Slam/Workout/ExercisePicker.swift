@@ -82,15 +82,30 @@ struct ExercisePicker: View {
     @Environment(AppModel.self) private var model
     @Environment(\.dismiss) private var dismiss
     var single = false
+    /// The exercise being replaced: others on its machine come first.
+    var replacing: Exercise?
     let onAdd: ([Exercise]) -> Void
     @State private var filter = ExerciseFilter()
     @State private var selected: [UUID] = []
-    @State private var creating = false
+    @State private var creating: Exercise?
 
     var body: some View {
         NavigationStack {
             List {
-                let all = filter.apply(model.exercises).sorted { $0.name.localizedCaseInsensitiveCompare($1.name) == .orderedAscending }
+                let all = filter.apply(model.allExercises).sorted { $0.name.localizedCaseInsensitiveCompare($1.name) == .orderedAscending }
+                if filter.isEmpty, let ex = replacing, let m = model.machine(ex.machineId) {
+                    Section("Same Machine") {
+                        ForEach(model.onMachine(m.id).filter { $0.id != ex.id }) { row($0) }
+                        Button {
+                            creating = Exercise(name: "", type: ex.type, equipment: ex.equipment, primary: ex.primary).moved(to: m)
+                        } label: {
+                            Label("New Exercise on \(m.name)", systemImage: "plus")
+                                .foregroundStyle(Theme.blue)
+                                .padding(.vertical, 10)
+                        }
+                        .listRowBackground(Theme.bg)
+                    }
+                }
                 if filter.isEmpty {
                     let recent = model.recentExerciseIds.compactMap { model.byId[$0] }
                     if !recent.isEmpty {
@@ -102,7 +117,7 @@ struct ExercisePicker: View {
                 Section(filter.isEmpty ? "All Exercises" : "\(all.count) found") {
                     ForEach(all) { row($0) }
                     if all.isEmpty {
-                        Button { creating = true } label: {
+                        Button { creating = Exercise(name: filter.search) } label: {
                             Label(filter.search.isEmpty ? "Create Exercise" : "Create \u{201C}\(filter.search)\u{201D}",
                                   systemImage: "plus")
                                 .foregroundStyle(Theme.blue)
@@ -131,12 +146,11 @@ struct ExercisePicker: View {
             .navigationBarTitleDisplayMode(.inline)
             .toolbar {
                 ToolbarItem(placement: .cancellationAction) { Button("Cancel") { dismiss() } }
-                ToolbarItem(placement: .primaryAction) { Button("Create") { creating = true } }
+                ToolbarItem(placement: .primaryAction) { Button("Create") { creating = Exercise(name: filter.search) } }
             }
-            .sheet(isPresented: $creating) {
+            .sheet(item: $creating) { draft in
                 NavigationStack {
-                    ExerciseForm(exercise: Exercise(name: filter.search), isNew: true) { e in
-                        model.save(exercise: e)
+                    ExerciseForm(exercise: draft, isNew: true) { e in
                         if single {
                             onAdd([e])
                             dismiss()
@@ -176,8 +190,12 @@ struct ExerciseForm: View {
     @Environment(\.dismiss) private var dismiss
     @State var exercise: Exercise
     let isNew: Bool
-    let onSave: (Exercise) -> Void
+    /// After it is saved.
+    var onSave: (Exercise) -> Void = { _ in }
     @State private var item: PhotosPickerItem?
+    /// Made in this form, saved with the exercise.
+    @State private var newMachine: Machine?
+    @State private var machinePicked = false
 
     var body: some View {
         Form {
@@ -266,16 +284,22 @@ struct ExerciseForm: View {
             ToolbarItem(placement: .confirmationAction) {
                 Button("Save") {
                     var e = exercise
+                    // Off the machine when it is no longer done on one: its copy of the weights is cleaned below.
+                    if !machineEquipment { e.machineId = nil }
                     e.name = e.name.trimmingCharacters(in: .whitespaces)
                     e.brand = e.brand.trimmingCharacters(in: .whitespaces)
                     e.settings = e.settings.filter { !$0.name.trimmingCharacters(in: .whitespaces).isEmpty }
                     if !e.type.hasReps { e.unilateral = false }
-                    // Only what this equipment uses is kept.
-                    if e.equipment != .machine { e.plateSides = 0 }
-                    if e.rig != .stack || (e.addOn ?? 0) <= 0 { e.addOn = nil }
-                    if e.rig != .stack { e.pin = false }
-                    if e.rig != .stack { e.stack = [] }
-                    if e.rig != .barbell && e.rig != .plateLoaded { e.bar = nil }
+                    if (e.addOn ?? 0) <= 0 { e.addOn = nil }
+                    // Only what this equipment uses is kept; a machine's weights stay for its other exercises.
+                    if e.machineId == nil {
+                        if e.equipment != .machine { e.plateSides = 0 }
+                        if e.rig != .stack { e.addOn = nil }
+                        if e.rig != .stack { e.pin = false }
+                        if e.rig != .stack { e.stack = [] }
+                        if e.rig != .barbell && e.rig != .plateLoaded { e.bar = nil }
+                    }
+                    model.save(exercise: e, new: newMachine?.id == e.machineId ? newMachine : nil)
                     onSave(e)
                     dismiss()
                 }
@@ -283,6 +307,11 @@ struct ExerciseForm: View {
             }
         }
         .scrollDismissesKeyboard(.interactively)
+        .onChange(of: exercise.equipment) { _, now in
+            // A new cable exercise is most likely on the cable stack used last at this gym.
+            guard isNew, !machinePicked, exercise.machineId == nil, now == .cable, let m = model.lastMachine(.cable) else { return }
+            exercise = exercise.moved(to: m)
+        }
         .onChange(of: item) { _, picked in
             guard let picked else { return }
             Task {
@@ -296,40 +325,75 @@ struct ExerciseForm: View {
 }
 
 extension ExerciseForm {
-    /// A stack machine: its slots and add-on. Plate loaded: the sides and the machine's own weight. A barbell: the bar.
+    private var machineEquipment: Bool { exercise.equipment == .machine || exercise.equipment == .cable }
+
+    /// The machine it is done on. A stack machine: its slots and add-on. Plate loaded: the sides and the machine's own
+    /// weight. A barbell: the bar.
     @ViewBuilder
     private var weightSection: some View {
-        if exercise.type.hasKg && [.machine, .cable, .barbell].contains(exercise.equipment) {
+        if machineEquipment || (exercise.type.hasKg && exercise.equipment == .barbell) {
             Section {
-                if exercise.equipment == .machine {
-                    Toggle("Plate Loaded", isOn: Binding(get: { exercise.plateSides > 0 },
-                                                         set: { exercise.plateSides = $0 ? 2 : 0 }))
-                }
-                switch exercise.rig {
-                case .stack:
+                if machineEquipment {
                     NavigationLink {
-                        StackEditor(stack: $exercise.stack)
+                        MachinePicker(exercise: $exercise, newMachine: $newMachine, picked: $machinePicked)
                     } label: {
                         HStack {
-                            Text("Weight Stack")
+                            Text("Machine")
                             Spacer()
-                            Text(stackSummary).foregroundStyle(Theme.grey)
+                            Text(machineName ?? "None").foregroundStyle(Theme.grey).lineLimit(1)
                         }
                     }
-                    KgField(title: "Add-on Weight", value: $exercise.addOn, placeholder: "None")
-                    Toggle("Pin for Plates", isOn: $exercise.pin)
-                case .plateLoaded:
-                    Picker("Plates Go On", selection: $exercise.plateSides) {
-                        Text("Both Sides").tag(2)
-                        Text("One Side").tag(1)
-                    }
-                    KgField(title: "Machine Weight", value: $exercise.bar, placeholder: "0")
-                case .barbell:
-                    KgField(title: "Bar Weight", value: $exercise.bar, placeholder: "20")
-                default:
-                    EmptyView()
+                }
+                if exercise.type.hasKg { weightRows.id(exercise.machineId) }
+            } footer: {
+                if let shared = sharedWith { Text(shared) }
+            }
+        }
+    }
+
+    private var machineName: String? {
+        guard let id = exercise.machineId else { return nil }
+        return newMachine?.id == id ? newMachine?.name : model.machine(id)?.name
+    }
+
+    /// Who else changes when the weights or settings here change.
+    private var sharedWith: String? {
+        guard let id = exercise.machineId else { return nil }
+        let others = model.onMachine(id).filter { $0.id != exercise.id }.map(\.name)
+        guard let first = others.first else { return nil }
+        let who = others.count == 1 ? first : others.count == 2 ? "\(first) and \(others[1])" : "\(first) and \(others.count - 1) more"
+        return "Weights and settings are shared with \(who)."
+    }
+
+    @ViewBuilder
+    private var weightRows: some View {
+        if exercise.equipment == .machine {
+            Toggle("Plate Loaded", isOn: Binding(get: { exercise.plateSides > 0 },
+                                                 set: { exercise.plateSides = $0 ? 2 : 0 }))
+        }
+        switch exercise.rig {
+        case .stack:
+            NavigationLink {
+                StackEditor(stack: $exercise.stack)
+            } label: {
+                HStack {
+                    Text("Weight Stack")
+                    Spacer()
+                    Text(stackSummary).foregroundStyle(Theme.grey)
                 }
             }
+            KgField(title: "Add-on Weight", value: $exercise.addOn, placeholder: "None")
+            Toggle("Pin for Plates", isOn: $exercise.pin)
+        case .plateLoaded:
+            Picker("Plates Go On", selection: $exercise.plateSides) {
+                Text("Both Sides").tag(2)
+                Text("One Side").tag(1)
+            }
+            KgField(title: "Machine Weight", value: $exercise.bar, placeholder: "0")
+        case .barbell:
+            KgField(title: "Bar Weight", value: $exercise.bar, placeholder: "20")
+        default:
+            EmptyView()
         }
     }
 

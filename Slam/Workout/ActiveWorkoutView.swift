@@ -163,7 +163,7 @@ struct EditorSheets: ViewModifier {
                 ExercisePicker { editor.add($0) }.environment(model)
             }
             .sheet(item: $editor.replacing) { ref in
-                ExercisePicker(single: true) { list in
+                ExercisePicker(single: true, replacing: editor.entry(ref.id).flatMap { model.byId[$0.exerciseId] }) { list in
                     if let ex = list.first { editor.replace(ref.id, with: ex) }
                 }
                 .environment(model)
@@ -190,7 +190,7 @@ struct EditorSheets: ViewModifier {
             .sheet(item: $editor.editingExercise) { link in
                 if let ex = model.byId[link.id] {
                     NavigationStack {
-                        ExerciseForm(exercise: ex, isNew: false) { model.save(exercise: $0) }
+                        ExerciseForm(exercise: ex, isNew: false)
                     }
                     .environment(model)
                 }
@@ -255,7 +255,7 @@ struct EntrySettingsSheet: View {
                     }
                     Section {
                         NavigationLink(list.isEmpty ? "Add Seat, Pad or Incline Settings" : "Edit Exercise") {
-                            ExerciseForm(exercise: ex, isNew: false) { model.save(exercise: $0) }
+                            ExerciseForm(exercise: ex, isNew: false)
                         }
                     }
                 }

@@ -34,7 +34,7 @@ enum Agent {
             let text = q["query"].map { String($0).lowercased() } ?? ""
             let muscle = q["muscle"].map { String($0).lowercased() } ?? ""
             let equipment = q["equipment"].map { String($0).lowercased() } ?? ""
-            let list = view.lib.exercises.filter { e in
+            let list = view.exercises.filter { e in
                 (text.isEmpty || (e.name + " " + e.brand).lowercased().contains(text))
                     && (muscle.isEmpty || ([e.primary] + e.secondary).contains { $0.rawValue.lowercased() == muscle || $0.title.lowercased() == muscle })
                     && (equipment.isEmpty || e.equipment.rawValue == equipment)
@@ -69,7 +69,7 @@ enum Agent {
             if let name = q["exercise"], !name.isEmpty {
                 return try out([view.bests(try view.find(String(name)))])
             }
-            return try out(view.lib.exercises.map(view.bests).filter { $0.sessions > 0 }.sorted { $0.exercise < $1.exercise })
+            return try out(view.exercises.map(view.bests).filter { $0.sessions > 0 }.sorted { $0.exercise < $1.exercise })
         }
         router.get("v1/agent/weeks") { request, _ -> Response in
             try Routes.check(request, tokens, reads)
@@ -97,7 +97,9 @@ enum Agent {
             let body = try await read(request, ExerciseIn.self, limit: 1 << 20)
             let view = await View(vault.library())
             let ex = try view.exercise(body)
-            try await vault.put(record(ex))
+            var lib = view.lib
+            let touched = lib.save(ex)
+            for r in records(lib, saving: ex.id, touched) { try await vault.put(r) }
             return try out(await View(vault.library()).exercise(ex))
         }
         router.post("v1/agent/workouts") { request, _ -> Response in
@@ -132,6 +134,16 @@ enum Agent {
     static func record(_ f: Folder) -> SyncRecord { var r = SyncRecord(kind: .folder, id: f.id.uuidString); r.folder = f; return r }
     static func record(_ x: Routine) -> SyncRecord { var r = SyncRecord(kind: .routine, id: x.id.uuidString); r.routine = x; return r }
     static func record(_ w: Workout) -> SyncRecord { var r = SyncRecord(kind: .workout, id: w.id.uuidString); r.workout = w; return r }
+    static func record(_ m: Machine) -> SyncRecord { var r = SyncRecord(kind: .machine, id: m.id.uuidString); r.machine = m; return r }
+
+    /// An exercise as `Library.save` stored it, and what that changed with it. Unchanged ones are not written.
+    static func records(_ lib: Library, saving id: UUID, _ t: Touched) -> [SyncRecord] {
+        var out = lib.exercises.filter { $0.id == id }.map(record)
+        out += lib.machines.filter { $0.id == t.machine }.map(record)
+        if t.routines { out += lib.routines.map(record) }
+        out += lib.workouts.filter { t.workouts.contains($0.id) }.map(record)
+        return out
+    }
 
     // MARK: Output
 
@@ -359,6 +371,9 @@ struct ExerciseOut: Encodable {
     var type: String
     var equipment: String
     var brand: String?
+    /// The machine it shares its weights and setup with, and the other exercises done on it.
+    var machine: String?
+    var sameMachine: [String]?
     var primary: String
     var secondary: [String]
     var unilateral: Bool
@@ -440,12 +455,15 @@ struct RoutinesOut: Encodable {
 
 struct View {
     let lib: Library
+    /// With their machines' weights and setup.
+    let exercises: [Exercise]
     let byId: [UUID: Exercise]
     let records: [UUID: [Record]]
 
     init(_ lib: Library) {
         self.lib = lib
-        byId = Dictionary(lib.exercises.map { ($0.id, $0) }, uniquingKeysWith: { a, _ in a })
+        exercises = lib.resolved
+        byId = Dictionary(exercises.map { ($0.id, $0) }, uniquingKeysWith: { a, _ in a })
         records = Records.all(lib.workouts, exercises: byId)
     }
 
@@ -464,10 +482,10 @@ struct View {
         guard !ref.isEmpty else { throw HTTPError(.badRequest, message: "Name an exercise.") }
         if let id = UUID(uuidString: ref), let e = byId[id] { return e }
         let low = ref.lowercased()
-        if let e = lib.exercises.first(where: { $0.name.lowercased() == low }) { return e }
-        let near = lib.exercises.filter { $0.name.lowercased().contains(low) }
+        if let e = exercises.first(where: { $0.name.lowercased() == low }) { return e }
+        let near = exercises.filter { $0.name.lowercased().contains(low) }
         if near.count == 1 { return near[0] }
-        let names = (near.isEmpty ? lib.exercises.filter { e in
+        let names = (near.isEmpty ? exercises.filter { e in
             low.split(separator: " ").contains { e.name.lowercased().contains($0) }
         } : near).map(\.name).sorted().prefix(15)
         throw HTTPError(.notFound, message: "No single exercise matches \"\(ref)\"."
@@ -515,8 +533,10 @@ struct View {
 
     func exercise(_ e: Exercise) -> ExerciseOut {
         let used = lib.workouts.filter { $0.exercises.contains { $0.exerciseId == e.id } }
+        let same = e.machineId == nil ? [] : exercises.filter { $0.machineId == e.machineId && $0.id != e.id }.map(\.name).sorted()
         return ExerciseOut(id: e.id, name: e.name, type: e.type.rawValue, equipment: e.equipment.rawValue,
-                           brand: e.brand.isEmpty ? nil : e.brand, primary: e.primary.rawValue,
+                           brand: e.brand.isEmpty ? nil : e.brand, machine: lib.machine(e.machineId)?.name,
+                           sameMachine: same.isEmpty ? nil : same, primary: e.primary.rawValue,
                            secondary: e.secondary.map(\.rawValue), unilateral: e.unilateral,
                            stack: e.stack.isEmpty ? nil : e.stack, addOn: e.addOn, pin: e.pin ? true : nil, bar: e.bar,
                            plateSides: e.plateSides == 0 ? nil : e.plateSides,

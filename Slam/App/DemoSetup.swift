@@ -106,6 +106,10 @@ extension AppModel {
             showWorkout = true
             try? await Task.sleep(for: .seconds(0.8))
             if let id = editor?.workout.exercises.first?.exerciseId { editor?.historyFor = ExerciseLink(id: id) }
+        case "replace":
+            showWorkout = true
+            try? await Task.sleep(for: .seconds(0.8))
+            if let id = editor?.workout.exercises.first?.id { editor?.replacing = EntryRef(id: id) }
         case "picker":
             showWorkout = true
             try? await Task.sleep(for: .seconds(0.8))

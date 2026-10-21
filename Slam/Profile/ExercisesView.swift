@@ -8,7 +8,7 @@ struct ExercisesView: View {
     @State private var creating = false
 
     var body: some View {
-        let list = filter.apply(model.exercises).sorted { $0.name.localizedCaseInsensitiveCompare($1.name) == .orderedAscending }
+        let list = filter.apply(model.allExercises).sorted { $0.name.localizedCaseInsensitiveCompare($1.name) == .orderedAscending }
         List {
             ForEach(list) { e in
                 NavigationLink(value: ExerciseLink(id: e.id)) { ExerciseRow(exercise: e) }
@@ -29,7 +29,7 @@ struct ExercisesView: View {
         }
         .sheet(isPresented: $creating) {
             NavigationStack {
-                ExerciseForm(exercise: Exercise(name: filter.search), isNew: true) { model.save(exercise: $0) }
+                ExerciseForm(exercise: Exercise(name: filter.search), isNew: true)
             }
             .environment(model)
         }
@@ -95,7 +95,7 @@ struct ExerciseDetailView: View {
         }
         .sheet(isPresented: $editing) {
             NavigationStack {
-                ExerciseForm(exercise: ex, isNew: false) { model.save(exercise: $0) }
+                ExerciseForm(exercise: ex, isNew: false)
             }
             .environment(model)
         }
