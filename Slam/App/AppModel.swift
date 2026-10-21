@@ -31,6 +31,8 @@ final class AppModel {
 
     var restEnd: Date?
     var restLength = 0
+    /// The set whose tick started the rest: unticking it stops the rest.
+    private(set) var restSet: UUID?
     /// Screenshot mode: the lock screen and Dynamic Island drawn over the app.
     var demoLive = false
     var stopwatchStart: Date?
@@ -226,9 +228,10 @@ final class AppModel {
 
     // MARK: Rest timer
 
-    func startRest(_ seconds: Int) {
+    func startRest(_ seconds: Int, after set: UUID? = nil) {
         restLength = seconds
         restEnd = Date().addingTimeInterval(TimeInterval(seconds))
+        restSet = set
         scheduleRestAlert()
         refreshLiveActivity()
     }
@@ -248,25 +251,41 @@ final class AppModel {
 
     func skipRest() {
         restEnd = nil
+        restSet = nil
         UNUserNotificationCenter.current().removePendingNotificationRequests(withIdentifiers: ["rest"])
+        if !demo { Sounds.cancelRest() }
         refreshLiveActivity()
     }
 
-    /// Chime and buzz, unless the app was away when it ended (the notification already told you).
+    /// A few seconds before the end: when the ding is queued and will play itself, the notification would only
+    /// ding a second time.
+    func restEnding() {
+        if Sounds.restQueued {
+            UNUserNotificationCenter.current().removePendingNotificationRequests(withIdentifiers: ["rest"])
+        }
+    }
+
+    /// Ding (unless it was queued and played itself) and buzz, unless the app was away when it ended: then the
+    /// notification already told you.
     func restFinished(late: Bool) {
+        let queued = Sounds.restQueued
         restEnd = nil
+        restSet = nil
         refreshLiveActivity()
         guard !late, !demo else { return }
-        Sounds.play(.rest)
+        if !queued { Sounds.play(.rest) }
         Sounds.buzz()
     }
 
+    /// The ding queued for the end, and a notification as the backup in case iOS closes Slam before then.
     private func scheduleRestAlert() {
         guard let end = restEnd, !demo else { return }
+        Sounds.queueRest(at: end)
         let center = UNUserNotificationCenter.current()
         center.removePendingNotificationRequests(withIdentifiers: ["rest"])
         let content = UNMutableNotificationContent()
         content.title = "Rest over"
+        content.interruptionLevel = .timeSensitive
         content.sound = UNNotificationSound(named: UNNotificationSoundName("rest.wav"))
         let trigger = UNTimeIntervalNotificationTrigger(timeInterval: max(1, end.timeIntervalSinceNow), repeats: false)
         center.add(UNNotificationRequest(identifier: "rest", content: content, trigger: trigger))

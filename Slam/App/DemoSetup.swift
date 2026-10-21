@@ -102,6 +102,10 @@ extension AppModel {
         case "save":
             showWorkout = true
             editor?.saving = true
+        case "history-sheet":
+            showWorkout = true
+            try? await Task.sleep(for: .seconds(0.8))
+            if let id = editor?.workout.exercises.first?.exerciseId { editor?.historyFor = ExerciseLink(id: id) }
         case "picker":
             showWorkout = true
             try? await Task.sleep(for: .seconds(0.8))

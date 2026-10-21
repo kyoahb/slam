@@ -63,7 +63,7 @@ jobs:
 
       - name: Screenshots
         env:
-          SCREENS: ${{ inputs.screens || 'routines workout weight reps record rest live watch save picker form routine history detail profile stats volume exercises exercise calendar photos settings fresh-history fresh-profile fresh-stats fresh-volume fresh-calendar fresh-exercise' }}
+          SCREENS: ${{ inputs.screens || 'routines workout weight reps record rest live watch save history-sheet picker form routine history detail profile stats volume exercises exercise calendar photos settings fresh-history fresh-profile fresh-stats fresh-volume fresh-calendar fresh-exercise' }}
         run: |
           mkdir -p shots
           # Simulator commands can hang on a busy runner, so each gets a time limit.

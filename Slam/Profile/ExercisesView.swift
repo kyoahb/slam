@@ -40,11 +40,17 @@ struct ExercisesView: View {
 struct ExerciseDetailView: View {
     @Environment(AppModel.self) private var model
     let id: UUID
-    @State private var page = 0
+    /// 0 Summary, 1 History.
+    @State private var page: Int
     @State private var metric: Metric?
     @State private var range: Span = .all
     @State private var selected: Date?
     @State private var editing = false
+
+    init(id: UUID, page: Int = 0) {
+        self.id = id
+        _page = State(initialValue: page)
+    }
 
     enum Span: CaseIterable {
         case all, year, months3

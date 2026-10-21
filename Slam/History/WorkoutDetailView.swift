@@ -5,6 +5,8 @@ struct WorkoutDetailView: View {
     @Environment(AppModel.self) private var model
     @Environment(\.dismiss) private var dismiss
     let id: UUID
+    /// Opened over the workout in progress: looked at, not changed.
+    var readOnly = false
     @State private var editing: WorkoutEditor?
     @State private var confirmDelete = false
     @State private var naming = false
@@ -70,18 +72,20 @@ struct WorkoutDetailView: View {
                 ShareLink(item: ShareText.workout(w, model)) { Image(systemName: "square.and.arrow.up") }
                     .accessibilityLabel("Share workout")
             }
-            ToolbarItem(placement: .topBarTrailing) {
-                Menu {
-                    Button("Edit Workout", systemImage: "pencil") {
-                        editing = WorkoutEditor(workout: w, mode: .past, app: model)
+            if !readOnly {
+                ToolbarItem(placement: .topBarTrailing) {
+                    Menu {
+                        Button("Edit Workout", systemImage: "pencil") {
+                            editing = WorkoutEditor(workout: w, mode: .past, app: model)
+                        }
+                        Button("Save as Routine", systemImage: "list.bullet.clipboard") {
+                            routineName = w.title
+                            naming = true
+                        }
+                        Button("Delete Workout", systemImage: "trash", role: .destructive) { confirmDelete = true }
+                    } label: {
+                        Image(systemName: "ellipsis")
                     }
-                    Button("Save as Routine", systemImage: "list.bullet.clipboard") {
-                        routineName = w.title
-                        naming = true
-                    }
-                    Button("Delete Workout", systemImage: "trash", role: .destructive) { confirmDelete = true }
-                } label: {
-                    Image(systemName: "ellipsis")
                 }
             }
         }

@@ -53,6 +53,8 @@ final class WorkoutEditor: Identifiable {
     var reordering = false
     var settingsFor: EntryRef?
     var editingExercise: ExerciseLink?
+    /// The exercise's past sessions, opened from its name.
+    var historyFor: ExerciseLink?
     var saving = false
     var doneTick = 0
     var recordTick = 0
@@ -221,7 +223,9 @@ final class WorkoutEditor: Identifiable {
             s.done = false
             s.doneAt = nil
             write(p, s)
-            if mode == .live { app.refreshLiveActivity() }
+            if mode == .live {
+                if app.restSet == set { app.skipRest() } else { app.refreshLiveActivity() }
+            }
             return
         }
         s = s.filled(from: placeholders(workout.exercises[p.e])[p.s])
@@ -241,7 +245,7 @@ final class WorkoutEditor: Identifiable {
             if !app.demo { Sounds.play(news.isEmpty ? .set : .record) }
         }
         if mode == .live, let rest = Rest.after(p.s, in: workout.exercises[p.e].sets, settings: app.settings) {
-            app.startRest(rest)
+            app.startRest(rest, after: set)
         } else if mode == .live {
             app.refreshLiveActivity()
         }

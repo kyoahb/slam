@@ -176,6 +176,17 @@ struct EditorSheets: ViewModifier {
                     .environment(model)
                     .presentationDetents([.medium, .large])
             }
+            .sheet(item: $editor.historyFor) { link in
+                NavigationStack {
+                    ExerciseDetailView(id: link.id, page: 1)
+                        .toolbar {
+                            ToolbarItem(placement: .cancellationAction) { Button("Done") { editor.historyFor = nil } }
+                        }
+                        .navigationDestination(for: WorkoutLink.self) { WorkoutDetailView(id: $0.id, readOnly: true) }
+                        .navigationDestination(for: ExerciseLink.self) { ExerciseDetailView(id: $0.id, page: 1) }
+                }
+                .environment(model)
+            }
             .sheet(item: $editor.editingExercise) { link in
                 if let ex = model.byId[link.id] {
                     NavigationStack {

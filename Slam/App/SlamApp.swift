@@ -62,11 +62,18 @@ struct RootView: View {
         }
         .task(id: model.restEnd) {
             guard let end = model.restEnd else { return }
-            let wait = end.timeIntervalSinceNow
-            if wait > 0 { try? await Task.sleep(for: .seconds(wait)) }
-            guard !Task.isCancelled, model.restEnd == end else { return }
+            guard await reached(end.addingTimeInterval(-3), rest: end) else { return }
+            model.restEnding()
+            guard await reached(end, rest: end) else { return }
             model.restFinished(late: -end.timeIntervalSinceNow > 2)
         }
+    }
+
+    /// False when the rest was skipped or changed meanwhile.
+    private func reached(_ date: Date, rest end: Date) async -> Bool {
+        let wait = date.timeIntervalSinceNow
+        if wait > 0 { try? await Task.sleep(for: .seconds(wait), tolerance: .milliseconds(100)) }
+        return !Task.isCancelled && model.restEnd == end
     }
 }
 
