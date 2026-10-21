@@ -129,9 +129,12 @@ jobs:
             limit 300 xcrun simctl boot "$id" || echo "$dev: boot command failed"
             limit 600 xcrun simctl bootstatus "$id" > /dev/null 2>&1 || { echo "$dev: boot stalled"; return; }
             limit 180 xcrun simctl install "$id" build/dd/Build/Products/Debug-watchsimulator/SlamWatch.app || return
-            limit 60 xcrun simctl launch "$id" com.kyoahb.slam.watchkitapp -demo > /dev/null || echo "$dev: launch failed"
-            sleep 8
-            limit 30 xcrun simctl io "$id" screenshot "shots/$dev.png" > /dev/null 2>&1 || echo "$dev: no screenshot"
+            for state in rest working; do
+              limit 60 xcrun simctl launch --terminate-running-process "$id" com.kyoahb.slam.watchkitapp -demo "-$state" > /dev/null ||
+                echo "$dev: launch failed"
+              sleep 8
+              limit 30 xcrun simctl io "$id" screenshot "shots/$dev-$state.png" > /dev/null 2>&1 || echo "$dev: no screenshot"
+            done
           }
           pids=()
           while read -r id dev; do shoot "$id" "$dev" & pids+=($!); done < build/watches

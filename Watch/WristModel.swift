@@ -17,7 +17,9 @@ final class WristModel {
     init(demo: Bool) {
         self.demo = demo
         if demo {
+            // -working: between rests, as when the set is being done.
             state = .sample
+            if ProcessInfo.processInfo.arguments.contains("-working") { state?.restEnd = nil }
             return
         }
         UNUserNotificationCenter.current().delegate = WristAlerts.shared

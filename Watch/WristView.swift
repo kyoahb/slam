@@ -36,12 +36,12 @@ struct WristView: View {
 
     /// The rest counting down while there is one, else how long the workout has run.
     private func clock(_ state: WristState) -> some View {
-        TimelineView(.explicit(state.restEnd.map { [$0] } ?? [])) { context in
+        TimelineView(.periodic(from: .now, by: 1)) { context in
             if let end = state.restEnd, end > context.date {
                 let start = min(end.addingTimeInterval(-Double(max(1, state.restLength))), context.date)
                 VStack(spacing: 6) {
                     Text(timerInterval: start...end, countsDown: true)
-                        .font(.system(size: 40, weight: .semibold, design: .rounded))
+                        .font(.system(size: 34, weight: .semibold, design: .rounded))
                         .monospacedDigit()
                         .frame(maxWidth: .infinity)
                     ProgressView(timerInterval: start...end, countsDown: true) {
@@ -55,30 +55,34 @@ struct WristView: View {
                         Button("+15") { model.adjust(15) }
                         Button("Skip") { model.skip() }
                     }
-                    .font(.footnote.weight(.semibold))
+                    .buttonStyle(Small())
                 }
             } else {
                 HStack {
-                    Text(state.title).font(.footnote).foregroundStyle(Tint.grey).lineLimit(1)
+                    Text(state.title).foregroundStyle(Tint.grey).lineLimit(1)
                     Spacer(minLength: 4)
-                    Text(state.start, style: .timer).font(.footnote).monospacedDigit()
+                    Text(state.start, style: .timer).monospacedDigit()
                 }
+                .font(.footnote)
             }
         }
     }
 
     private func current(_ line: WristState.Line) -> some View {
-        VStack(alignment: .leading, spacing: 3) {
+        VStack(alignment: .leading, spacing: 2) {
             Text(line.exercise).font(.headline).foregroundStyle(Tint.blue).lineLimit(2)
-            if !line.settings.isEmpty {
-                Text(line.settings).font(.footnote).foregroundStyle(Tint.grey)
+            HStack(alignment: .firstTextBaseline, spacing: 6) {
+                Text(line.label).font(.footnote).foregroundStyle(Tint.grey)
+                Text(line.values.isEmpty ? "–" : line.values).font(.title3.weight(.semibold))
+                    .lineLimit(1).minimumScaleFactor(0.7)
             }
-            Text(line.label).font(.footnote).foregroundStyle(Tint.grey).padding(.top, 4)
-            Text(line.values.isEmpty ? "–" : line.values).font(.title3.weight(.semibold))
             if let setup = line.setup {
                 Text(setup).font(.footnote)
             }
-            HoldDone { model.done(line) }.id(line.set).padding(.top, 6)
+            if !line.settings.isEmpty {
+                Text(line.settings).font(.footnote).foregroundStyle(Tint.grey)
+            }
+            HoldDone { model.done(line) }.id(line.set).padding(.top, 4)
         }
     }
 
@@ -107,6 +111,16 @@ struct WristView: View {
     }
 }
 
+private struct Small: ButtonStyle {
+    func makeBody(configuration: Configuration) -> some View {
+        configuration.label
+            .font(.footnote.weight(.semibold))
+            .frame(maxWidth: .infinity, minHeight: 30)
+            .background(Capsule().fill(Tint.control.opacity(configuration.isPressed ? 0.6 : 1)))
+            .contentShape(Capsule())
+    }
+}
+
 /// Held for half a second, like the tick on the phone, so a brush of the sleeve does nothing.
 struct HoldDone: View {
     let action: () -> Void
@@ -124,7 +138,7 @@ struct HoldDone: View {
             .overlay {
                 Label("Hold for Done", systemImage: "checkmark").font(.footnote.weight(.semibold))
             }
-            .frame(height: 40)
+            .frame(height: 36)
             .contentShape(Capsule())
             .onLongPressGesture(minimumDuration: 0.5) {
                 var instant = Transaction()
