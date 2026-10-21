@@ -50,6 +50,8 @@ final class AppModel {
     var syncConfig: SyncConfig?
     var syncStatus = SyncStatus()
     @ObservationIgnored var syncDelay: Task<Void, Never>?
+    @ObservationIgnored let wrist = WristLink()
+    @ObservationIgnored var wristDelay: Task<Void, Never>?
 
     init(store: FileStore, library: Library, demo: Bool) {
         self.store = store
@@ -90,6 +92,7 @@ final class AppModel {
         let model = AppModel(store: store, library: library, demo: demo)
         if demo { model.prepareDemo(args) }
         UNUserNotificationCenter.current().delegate = NotificationDelegate.shared
+        if !demo { model.wrist.start(model) }
         model.refreshLiveActivity()
         return model
     }
@@ -199,6 +202,7 @@ final class AppModel {
     func saveActive(_ w: Workout?) {
         try? store.saveActive(w)
         syncSoon()
+        refreshWristSoon()
     }
 
     func discardActive() {

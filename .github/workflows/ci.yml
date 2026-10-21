@@ -107,6 +107,37 @@ jobs:
           for p in "${pids[@]}"; do wait "$p"; done
           ls -l shots
 
+      - name: Watch screenshots
+        run: |
+          limit() { perl -e 'alarm shift; exec @ARGV' "$@"; }
+          ls build/dd/Build/Products/Debug-iphonesimulator/Slam.app/Watch || echo "watch app not embedded"
+          # The smallest and the largest watch.
+          python3 - <<'PY' > build/watches
+          import json, re, subprocess
+          data = json.loads(subprocess.check_output(["xcrun", "simctl", "list", "devices", "available", "-j"]))
+          runtimes = sorted((k for k in data["devices"] if ".watchOS-" in k),
+                            key=lambda k: [int(x) for x in k.rsplit(".watchOS-", 1)[1].split("-")])
+          watches = [d for d in (data["devices"][runtimes[-1]] if runtimes else []) if re.search(r"\d+mm", d["name"])]
+          watches.sort(key=lambda d: int(re.search(r"(\d+)mm", d["name"]).group(1)))
+          for d in {d["udid"]: d for d in watches[:1] + watches[-1:]}.values():
+              print(d["udid"], d["name"].replace(" ", "-").replace("(", "").replace(")", ""))
+          PY
+          cat build/watches
+          [ -s build/watches ] || { echo "no watch simulator"; exit 0; }
+          shoot() {
+            id=$1; dev=$2
+            limit 300 xcrun simctl boot "$id" || echo "$dev: boot command failed"
+            limit 600 xcrun simctl bootstatus "$id" > /dev/null 2>&1 || { echo "$dev: boot stalled"; return; }
+            limit 180 xcrun simctl install "$id" build/dd/Build/Products/Debug-watchsimulator/SlamWatch.app || return
+            limit 60 xcrun simctl launch "$id" com.kyoahb.slam.watchkitapp -demo > /dev/null || echo "$dev: launch failed"
+            sleep 8
+            limit 30 xcrun simctl io "$id" screenshot "shots/$dev.png" > /dev/null 2>&1 || echo "$dev: no screenshot"
+          }
+          pids=()
+          while read -r id dev; do shoot "$id" "$dev" & pids+=($!); done < build/watches
+          for p in "${pids[@]}"; do wait "$p"; done
+          ls -l shots | grep -i watch || true
+
       - name: Crash reports
         if: always()
         run: |

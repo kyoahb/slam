@@ -6,6 +6,7 @@ extension AppModel {
     /// and takes it away once the workout is over.
     func refreshLiveActivity() {
         guard !demo else { return }
+        refreshWrist()
         let running = Activity<WorkoutActivity>.activities
         guard let editor else {
             for a in running { Task { await a.end(nil, dismissalPolicy: .immediate) } }

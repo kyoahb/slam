@@ -475,3 +475,16 @@ final class MachineTests: XCTestCase {
         XCTAssertEqual(try store.load().resolved, l.resolved)
     }
 }
+
+final class WristTests: XCTestCase {
+    func testStateKeepsTheRestToTheFractionOfASecond() throws {
+        let end = Date(timeIntervalSinceReferenceDate: 800_000_000.375)
+        let s = WristState(title: "Push Day", start: end.addingTimeInterval(-600), restEnd: end, restLength: 90, sets: [
+            .init(entry: UUID(), set: UUID(), exercise: "Chest Press (Machine)", label: "Set 3", values: "60 kg × 8",
+                  setup: "55 +5", settings: "Seat 4"),
+        ])
+        let back = try XCTUnwrap(s.encoded().flatMap(WristState.decoded))
+        XCTAssertEqual(back, s)
+        XCTAssertEqual(back.restEnd?.timeIntervalSinceReferenceDate, 800_000_000.375)
+    }
+}
