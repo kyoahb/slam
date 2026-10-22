@@ -30,6 +30,34 @@ jobs:
           mkdir -p build
           printf '%s\n' "$FASTLANE_KEY" > build/AuthKey.p8
 
+      # Each run's Mac makes a development certificate and then throws its key away, and Apple allows only a few.
+      # Revoke the ones earlier runs left (named "Created via API"); distribution signing is not touched.
+      - name: Revoke old CI certificates
+        run: |
+          python3 -m venv "$RUNNER_TEMP/asc" && "$RUNNER_TEMP/asc/bin/pip" install -q 'pyjwt[crypto]==2.10.1'
+          "$RUNNER_TEMP/asc/bin/python" - <<'PY'
+          import json, os, time, urllib.request
+          import jwt
+          now = int(time.time())
+          token = jwt.encode({"iss": os.environ["ISSUER_ID"], "iat": now, "exp": now + 600, "aud": "appstoreconnect-v1"},
+                             open("build/AuthKey.p8").read(), algorithm="ES256", headers={"kid": os.environ["KEY_ID"], "typ": "JWT"})
+          def call(method, path):
+              req = urllib.request.Request("https://api.appstoreconnect.apple.com/v1/" + path, method=method,
+                                           headers={"Authorization": "Bearer " + token})
+              with urllib.request.urlopen(req) as r:
+                  body = r.read()
+              return json.loads(body) if body else None
+          certs = call("GET", "certificates?limit=200&filter[certificateType]=DEVELOPMENT,IOS_DEVELOPMENT")["data"]
+          old = [c for c in certs if "Created via API" in (c["attributes"].get("name", "") + c["attributes"].get("displayName", ""))]
+          print(f"{len(certs)} development certificates, {len(old)} made by earlier runs")
+          for c in certs:
+              a = c["attributes"]
+              print(" ", a.get("certificateType"), a.get("name"), "|", a.get("displayName"), "| expires", a.get("expirationDate", "")[:10])
+          for c in old:
+              call("DELETE", "certificates/" + c["id"])
+          print(f"revoked {len(old)}")
+          PY
+
       - name: Archive
         run: |
           xcodebuild archive -project Slam.xcodeproj -scheme Slam -configuration Release \
