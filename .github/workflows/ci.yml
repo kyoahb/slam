@@ -133,7 +133,8 @@ jobs:
               limit 60 xcrun simctl launch --terminate-running-process "$id" com.kyoahb.slam.watchkitapp -demo "-$state" > /dev/null ||
                 echo "$dev: launch failed"
               sleep 8
-              limit 30 xcrun simctl io "$id" screenshot "shots/$dev-$state.png" > /dev/null 2>&1 || echo "$dev: no screenshot"
+              limit 30 xcrun simctl io "$id" screenshot "shots/$dev-$state.png" > /dev/null 2>&1 ||
+                limit 30 xcrun simctl io "$id" screenshot "shots/$dev-$state.png" > /dev/null 2>&1 || echo "$dev: no screenshot"
             done
           }
           pids=()
