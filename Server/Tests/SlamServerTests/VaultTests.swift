@@ -98,6 +98,48 @@ final class VaultTests: XCTestCase {
         XCTAssertEqual(names, ["slam-19700103-000000", "slam-19700104-000000"])
     }
 
+    /// Media never changes, so the next backup links to the last one's copy instead of copying again.
+    func testBackupsShareUnchangedPhotos() async throws {
+        let vault = try Vault(root: dir.appendingPathComponent("data"))
+        try await vault.savePhoto(Data(repeating: 7, count: 1000), as: "a.mp4")
+        let backups = dir.appendingPathComponent("backups")
+        let one = try await vault.backup(to: backups, now: Date(timeIntervalSince1970: 0))
+        let two = try await vault.backup(to: backups, now: Date(timeIntervalSince1970: 86400))
+        let inode = { (u: URL) in try FileManager.default.attributesOfItem(atPath: u.appendingPathComponent("photos/a.mp4").path)[.systemFileNumber] as? Int }
+        XCTAssertEqual(try inode(one), try inode(two))
+        XCTAssertEqual(try Data(contentsOf: two.appendingPathComponent("photos/a.mp4")).count, 1000)
+    }
+
+    func testVideosGoUpAndComeBack() async throws {
+        let vault = try Vault(root: dir)
+        let tokens = Tokens(phone: String(repeating: "p", count: 32), read: String(repeating: "r", count: 32),
+                            write: String(repeating: "w", count: 32))
+        let app = Application(router: Routes.router(vault, tokens))
+        let phone: HTTPFields = [.authorization: "Bearer " + tokens.phone]
+        let video = (0..<300_000).map { UInt8($0 % 251) }
+        try await app.test(.router) { client in
+            try await client.execute(uri: "/v1/photos/clip.mp4", method: .put, headers: phone, body: ByteBuffer(bytes: video)) {
+                XCTAssertEqual($0.status, .noContent)
+            }
+            try await client.execute(uri: "/v1/photos/clip.mp4", method: .get, headers: phone) { response in
+                XCTAssertEqual(response.status, .ok)
+                XCTAssertEqual(response.headers[.contentType], "video/mp4")
+                XCTAssertEqual(Array(response.body.readableBytesView), video)
+            }
+            try await client.execute(uri: "/v1/photos/missing", method: .post, headers: phone,
+                                     body: ByteBuffer(bytes: Array(#"["clip.mp4","other.mov"]"#.utf8))) { response in
+                XCTAssertEqual(try JSONDecoder().decode([String].self, from: Data(response.body.readableBytesView)), ["other.mov"])
+            }
+            try await client.execute(uri: "/v1/photos/big.jpg", method: .put, headers: phone,
+                                     body: ByteBuffer(bytes: [UInt8](repeating: 1, count: Routes.maxPhoto + 1))) {
+                XCTAssertEqual($0.status, .contentTooLarge)
+            }
+            try await client.execute(uri: "/v1/photos/big.jpg", method: .get, headers: phone) { XCTAssertEqual($0.status, .notFound) }
+        }
+        let left = try FileManager.default.contentsOfDirectory(atPath: dir.appendingPathComponent("photos").path)
+        XCTAssertEqual(left, ["clip.mp4"])
+    }
+
     func testRoutesNeedTheRightToken() async throws {
         let vault = try Vault(root: dir)
         let tokens = Tokens(phone: String(repeating: "p", count: 32), read: String(repeating: "r", count: 32),

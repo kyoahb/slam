@@ -164,15 +164,38 @@ extension AppModel {
         let files = Sync.photoFiles(library)
         let have = files.filter { fm.fileExists(atPath: store.photosDir.appendingPathComponent($0).path) }
         let missing: [String] = try await call(config, "v1/photos/missing", body: have.sorted())
-        for f in missing where Sync.safeFile(f) {
-            let data = try Data(contentsOf: store.photosDir.appendingPathComponent(f))
-            _ = try await send(config, "v1/photos/\(f)", method: "PUT", body: data, type: "image/jpeg")
+        // From disk and to disk, so a video is never held in memory whole. Photos first: they are small.
+        for f in missing.sorted(by: { Photo.isVideo($1) && !Photo.isVideo($0) }) where Sync.safeFile(f) {
+            try await upload(config, f, from: store.photosDir.appendingPathComponent(f))
         }
         try fm.createDirectory(at: store.photosDir, withIntermediateDirectories: true)
         for f in files.subtracting(have).sorted() where Sync.safeFile(f) {
-            guard let data = try? await send(config, "v1/photos/\(f)", method: "GET") else { continue }
-            try data.write(to: store.photosDir.appendingPathComponent(f), options: .atomic)
+            try? await download(config, f, to: store.photosDir.appendingPathComponent(f))
         }
+    }
+
+    private func mediaRequest(_ config: SyncConfig, _ file: String, method: String) -> URLRequest {
+        var request = URLRequest(url: config.url.appendingPathComponent("v1/photos/\(file)"),
+                                 timeoutInterval: Photo.isVideo(file) ? 600 : 60)
+        request.httpMethod = method
+        request.setValue("Bearer " + config.token, forHTTPHeaderField: "Authorization")
+        return request
+    }
+
+    private func upload(_ config: SyncConfig, _ file: String, from url: URL) async throws {
+        var request = mediaRequest(config, file, method: "PUT")
+        request.setValue(Photo.contentType(file), forHTTPHeaderField: "Content-Type")
+        let (_, response) = try await URLSession.shared.upload(for: request, fromFile: url)
+        let status = (response as? HTTPURLResponse)?.statusCode ?? 0
+        guard (200..<300).contains(status) else { throw SyncError.status(status) }
+    }
+
+    private func download(_ config: SyncConfig, _ file: String, to dest: URL) async throws {
+        let (temp, response) = try await URLSession.shared.download(for: mediaRequest(config, file, method: "GET"))
+        defer { try? FileManager.default.removeItem(at: temp) }
+        guard ((response as? HTTPURLResponse)?.statusCode ?? 0) == 200 else { return }
+        try? FileManager.default.removeItem(at: dest)
+        try FileManager.default.moveItem(at: temp, to: dest)
     }
 
     private func call<Body: Encodable, Reply: Decodable>(_ config: SyncConfig, _ path: String, body: Body) async throws -> Reply {

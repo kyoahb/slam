@@ -35,6 +35,10 @@ public struct Tokens: Sendable {
 }
 
 public enum Routes {
+    static let maxPhoto = 32 << 20
+    /// A few minutes of 1080p from the phone, which sends videos already shrunk.
+    static let maxVideo = 1 << 30
+
     public static func router(_ vault: Vault, _ tokens: Tokens) -> Router<BasicRequestContext> {
         let router = Router()
         router.get("v1/health") { _, _ in "ok" }
@@ -51,20 +55,37 @@ public enum Routes {
             return try json(await vault.missingPhotos(files))
         }
 
+        // Photos and videos. Both go to disk as they arrive, so a long video never sits in memory whole.
         router.put("v1/photos/:file") { request, context -> Response in
             try check(request, tokens, [.phone])
             let name = try context.parameters.require("file")
-            let buffer = try await request.body.collect(upTo: 32 << 20)
-            try await vault.savePhoto(Data(buffer.readableBytesView), as: name)
+            guard Sync.safeFile(name) else { throw HTTPError(.badRequest, message: "not a usable file name") }
+            let limit = Photo.isVideo(name) ? maxVideo : maxPhoto
+            let partial = await vault.partialURL(name)
+            var size = 0
+            let sized = request.body.map { buffer -> ByteBuffer in
+                size += buffer.readableBytes
+                guard size <= limit else { throw HTTPError(.contentTooLarge) }
+                return buffer
+            }
+            do {
+                try await FileIO().writeFile(contents: sized, path: partial.path, context: context)
+                try await vault.finishPhoto(partial, as: name)
+            } catch {
+                try? FileManager.default.removeItem(at: partial)
+                // The file writer wraps errors from the body, so say plainly when it was too big.
+                if size > limit { throw HTTPError(.contentTooLarge) }
+                throw error
+            }
             return Response(status: .noContent)
         }
 
         router.get("v1/photos/:file") { request, context -> Response in
             try check(request, tokens, [.phone, .read, .write])
             let name = try context.parameters.require("file")
-            guard let data = await vault.photo(name) else { throw HTTPError(.notFound) }
-            return Response(status: .ok, headers: [.contentType: "image/jpeg"],
-                            body: ResponseBody(byteBuffer: ByteBuffer(bytes: data)))
+            guard let url = await vault.photoURL(name) else { throw HTTPError(.notFound) }
+            let body = try await FileIO().loadFile(path: url.path, context: context)
+            return Response(status: .ok, headers: [.contentType: Photo.contentType(name)], body: body)
         }
         Agent.routes(router, vault, tokens)
         return router

@@ -102,6 +102,16 @@ extension AppModel {
         case "save":
             showWorkout = true
             editor?.saving = true
+        case "media", "media-add":
+            // Two photos taken mid-workout show above the exercises; media-add opens the camera button's choices.
+            showWorkout = true
+            for hue in [0.33, 0.75] {
+                if let data = Self.demoImage(hue: hue), let p = addPhoto(data) { editor?.workout.photos.append(p) }
+            }
+            if screen == "media-add" {
+                try? await Task.sleep(for: .seconds(0.8))
+                NotificationCenter.default.post(name: .demoAddMedia, object: nil)
+            }
         case "history-sheet":
             showWorkout = true
             try? await Task.sleep(for: .seconds(0.8))
@@ -153,7 +163,7 @@ extension AppModel {
         }
     }
 
-    private static func demoImage(hue: Double) -> Data? {
+    static func demoImage(hue: Double) -> Data? {
         let size = CGSize(width: 900, height: 1200)
         let format = UIGraphicsImageRendererFormat()
         format.scale = 1

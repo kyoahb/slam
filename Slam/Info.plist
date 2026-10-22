@@ -42,7 +42,9 @@
 	<key>LSSupportsOpeningDocumentsInPlace</key>
 	<true/>
 	<key>NSCameraUsageDescription</key>
-	<string>Take photos for your workouts.</string>
+	<string>Take photos and videos for your workouts.</string>
+	<key>NSMicrophoneUsageDescription</key>
+	<string>Record sound with the videos you take for your workouts.</string>
 	<key>NSHealthShareUsageDescription</key>
 	<string>Links your Apple Watch workouts to the cardio you log.</string>
 	<key>NSHealthUpdateUsageDescription</key>

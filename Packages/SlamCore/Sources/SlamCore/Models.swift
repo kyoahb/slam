@@ -310,6 +310,7 @@ public struct WorkoutExercise: Codable, Hashable, Identifiable, Sendable {
     }
 }
 
+/// A photo or a video attached to a workout; the file's extension says which.
 public struct Photo: Codable, Hashable, Identifiable, Sendable {
     public var id: UUID
     public var file: String
@@ -319,6 +320,20 @@ public struct Photo: Codable, Hashable, Identifiable, Sendable {
         self.id = id
         self.file = file
         self.addedAt = addedAt
+    }
+
+    public var isVideo: Bool { Self.isVideo(file) }
+
+    public static func isVideo(_ file: String) -> Bool {
+        let f = file.lowercased()
+        return f.hasSuffix(".mp4") || f.hasSuffix(".mov")
+    }
+
+    public static func contentType(_ file: String) -> String {
+        let f = file.lowercased()
+        if f.hasSuffix(".mp4") { return "video/mp4" }
+        if f.hasSuffix(".mov") { return "video/quicktime" }
+        return "image/jpeg"
     }
 }
 

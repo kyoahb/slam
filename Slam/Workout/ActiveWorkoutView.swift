@@ -1,6 +1,11 @@
 import SwiftUI
 import SlamCore
 
+extension Notification.Name {
+    /// Screenshot mode: open the camera button's choices.
+    static let demoAddMedia = Notification.Name("demoAddMedia")
+}
+
 struct ActiveWorkoutView: View {
     @Environment(AppModel.self) private var model
     @Bindable var editor: WorkoutEditor
@@ -9,9 +14,12 @@ struct ActiveWorkoutView: View {
     @State private var confirmDiscard = false
     @State private var askUnfinished = false
     @State private var nothingDone = false
+    @State private var addingMedia = false
+    @State private var viewing: Photo?
 
     private var list: some View {
         VStack(spacing: 0) {
+            if !editor.workout.photos.isEmpty { media }
             ForEach(editor.workout.exercises) { entry in
                 ExerciseCard(editor: editor, entry: entry)
                 Divider().overlay(Theme.line)
@@ -64,6 +72,10 @@ struct ActiveWorkoutView: View {
                     .accessibilityLabel("Minimise")
                 }
                 ToolbarItem(placement: .topBarTrailing) {
+                    Button { addingMedia = true } label: { Image(systemName: "camera") }
+                        .accessibilityLabel("Add photo or video")
+                }
+                ToolbarItem(placement: .topBarTrailing) {
                     Button { showClock = true } label: { clockLabel }
                         .accessibilityLabel("Clock")
                 }
@@ -92,6 +104,12 @@ struct ActiveWorkoutView: View {
             }
             .alert("No sets ticked yet", isPresented: $nothingDone) {
                 Button("OK", role: .cancel) {}
+            }
+            .mediaAdder($editor.workout.photos, choosing: $addingMedia)
+            .onReceive(NotificationCenter.default.publisher(for: .demoAddMedia)) { _ in addingMedia = true }
+            .onChange(of: editor.workout.photos) { _, _ in editor.changed() }
+            .fullScreenCover(item: $viewing) { p in
+                PhotoViewer(photo: p).environment(model)
             }
             .editorSheets(editor)
         }
@@ -123,6 +141,32 @@ struct ActiveWorkoutView: View {
             .padding(.vertical, 8)
             .background(Theme.bg)
             .overlay(alignment: .bottom) { Rectangle().fill(Theme.line).frame(height: 1) }
+        }
+    }
+
+    /// What was taken so far, above the exercises; tap to view, hold to remove.
+    private var media: some View {
+        VStack(spacing: 0) {
+            ScrollView(.horizontal, showsIndicators: false) {
+                HStack(spacing: 8) {
+                    ForEach(editor.workout.photos) { p in
+                        Button { viewing = p } label: {
+                            StoredImage(file: p.file)
+                                .frame(width: 72, height: 72)
+                                .clipShape(RoundedRectangle(cornerRadius: 8))
+                        }
+                        .buttonStyle(.plain)
+                        .contextMenu {
+                            Button(p.isVideo ? "Remove Video" : "Remove Photo", systemImage: "trash", role: .destructive) {
+                                editor.workout.photos.removeAll { $0.id == p.id }
+                            }
+                        }
+                    }
+                }
+                .padding(.horizontal, 16)
+                .padding(.vertical, 10)
+            }
+            Divider().overlay(Theme.line)
         }
     }
 

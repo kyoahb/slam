@@ -487,4 +487,15 @@ final class WristTests: XCTestCase {
         XCTAssertEqual(back, s)
         XCTAssertEqual(back.restEnd?.timeIntervalSinceReferenceDate, 800_000_000.375)
     }
+
+    func testVideosAreTellableByName() {
+        XCTAssertTrue(Photo(file: "A.mp4").isVideo)
+        XCTAssertTrue(Photo.isVideo("b.MOV"))
+        XCTAssertFalse(Photo(file: "c.jpg").isVideo)
+        XCTAssertEqual(Photo.contentType("a.mp4"), "video/mp4")
+        XCTAssertEqual(Photo.contentType("c.jpg"), "image/jpeg")
+        var w = Workout()
+        w.photos = [Photo(file: "a.mp4"), Photo(file: "c.jpg")]
+        XCTAssertEqual(Sync.photoFiles(Library(active: w)), ["a.mp4", "c.jpg"])
+    }
 }

@@ -104,8 +104,25 @@ public actor Vault {
     }
 
     public func photo(_ name: String) -> Data? {
+        photoURL(name).flatMap { try? Data(contentsOf: $0) }
+    }
+
+    public func photoURL(_ name: String) -> URL? {
         guard Sync.safeFile(name) else { return nil }
-        return try? Data(contentsOf: photosDir.appendingPathComponent(name))
+        let url = photosDir.appendingPathComponent(name)
+        return FileManager.default.fileExists(atPath: url.path) ? url : nil
+    }
+
+    /// Where an upload is written before it is whole; a dot name, so it is never served or listed as a photo.
+    public func partialURL(_ name: String) -> URL {
+        photosDir.appendingPathComponent(".\(UUID().uuidString)-\(name)")
+    }
+
+    /// Puts a whole upload in place, so a dropped connection never leaves half a video behind.
+    public func finishPhoto(_ partial: URL, as name: String) throws {
+        guard Sync.safeFile(name) else { throw VaultError.badId(name) }
+        let dest = photosDir.appendingPathComponent(name)
+        if rename(partial.path, dest.path) != 0 { throw CocoaError(.fileWriteUnknown) }
     }
 
     // MARK: Backups
@@ -118,8 +135,18 @@ public actor Vault {
         try fm.createDirectory(at: dir, withIntermediateDirectories: true)
         if fm.fileExists(atPath: dest.path) { try fm.removeItem(at: dest) }
         try fm.createDirectory(at: dest, withIntermediateDirectories: true)
-        for name in ["records", "photos"] {
-            try fm.copyItem(at: root.appendingPathComponent(name), to: dest.appendingPathComponent(name))
+        try fm.copyItem(at: recordsDir, to: dest.appendingPathComponent("records"))
+        // Photos and videos never change once written, so a backup links to the copy the last one made instead of
+        // copying again: thirty days of backups take one copy's room. Left out: uploads still arriving.
+        let photos = dest.appendingPathComponent("photos")
+        try fm.createDirectory(at: photos, withIntermediateDirectories: true)
+        let previous = try fm.contentsOfDirectory(atPath: dir.path).filter { $0.hasPrefix("slam-") && $0 != dest.lastPathComponent }
+            .sorted().last.map { dir.appendingPathComponent($0).appendingPathComponent("photos") }
+        for name in try fm.contentsOfDirectory(atPath: photosDir.path) where Sync.safeFile(name) {
+            let to = photos.appendingPathComponent(name)
+            if let previous, (try? fm.linkItem(at: previous.appendingPathComponent(name), to: to)) != nil { continue }
+            if (try? fm.linkItem(at: photosDir.appendingPathComponent(name), to: to)) != nil { continue }
+            try fm.copyItem(at: photosDir.appendingPathComponent(name), to: to)
         }
         let old = try fm.contentsOfDirectory(atPath: dir.path).filter { $0.hasPrefix("slam-") }.sorted().dropLast(keep)
         for name in old { try? fm.removeItem(at: dir.appendingPathComponent(name)) }

@@ -1,3 +1,4 @@
+import AVFoundation
 import SwiftUI
 import SlamCore
 import UserNotifications
@@ -45,6 +46,9 @@ final class AppModel {
     let store: FileStore
     let demo: Bool
     private let thumbs = NSCache<NSString, UIImage>()
+    /// Bumped when a video's first frame is ready, so its thumbnail shows.
+    private var posterTick = 0
+    @ObservationIgnored private var postersMaking: Set<String> = []
 
     /// The Slam server this phone syncs with, if it was set up.
     var syncConfig: SyncConfig?
@@ -206,6 +210,11 @@ final class AppModel {
     }
 
     func discardActive() {
+        // Photos and videos taken during it go with it, unless a saved workout also has them.
+        let kept = Set(workouts.flatMap { $0.photos.map(\.file) })
+        for p in editor?.workout.photos ?? [] where !kept.contains(p.file) {
+            try? FileManager.default.removeItem(at: store.photosDir.appendingPathComponent(p.file))
+        }
         editor = nil
         showWorkout = false
         skipRest()
@@ -484,8 +493,58 @@ final class AppModel {
         return Photo(file: name)
     }
 
+    /// A video from the camera or the library, shrunk to 1080p MP4 so it syncs in reasonable time. The original is
+    /// left where it was; the caller removes its temporary copy.
+    func addVideo(_ source: URL) async -> Photo? {
+        let name = UUID().uuidString + ".mp4"
+        let dest = store.photosDir.appendingPathComponent(name)
+        try? FileManager.default.createDirectory(at: store.photosDir, withIntermediateDirectories: true)
+        let asset = AVURLAsset(url: source)
+        guard let export = AVAssetExportSession(asset: asset, presetName: AVAssetExportPreset1920x1080) else { return nil }
+        do {
+            try await export.export(to: dest, as: .mp4)
+        } catch {
+            try? FileManager.default.removeItem(at: dest)
+            return nil
+        }
+        return Photo(file: name)
+    }
+
+    /// The file for a photo or video, if this phone has it.
+    func mediaURL(_ file: String) -> URL? {
+        let url = store.photosDir.appendingPathComponent(file)
+        return FileManager.default.fileExists(atPath: url.path) ? url : nil
+    }
+
+    /// A photo, or a video's first frame (made once, in the background, and kept in Caches).
     func image(_ file: String) -> UIImage? {
-        UIImage(contentsOfFile: store.photosDir.appendingPathComponent(file).path)
+        guard Photo.isVideo(file) else { return UIImage(contentsOfFile: store.photosDir.appendingPathComponent(file).path) }
+        _ = posterTick
+        let poster = postersDir.appendingPathComponent(file + ".jpg")
+        if let image = UIImage(contentsOfFile: poster.path) { return image }
+        makePoster(file, to: poster)
+        return nil
+    }
+
+    private var postersDir: URL {
+        FileManager.default.urls(for: .cachesDirectory, in: .userDomainMask)[0].appendingPathComponent("posters", isDirectory: true)
+    }
+
+    private func makePoster(_ file: String, to poster: URL) {
+        guard let url = mediaURL(file), !postersMaking.contains(file) else { return }
+        postersMaking.insert(file)
+        Task {
+            let generator = AVAssetImageGenerator(asset: AVURLAsset(url: url))
+            generator.appliesPreferredTrackTransform = true
+            generator.maximumSize = CGSize(width: 1080, height: 1080)
+            if let frame = try? await generator.image(at: .zero).image,
+               let jpeg = UIImage(cgImage: frame).jpegData(compressionQuality: 0.8) {
+                try? FileManager.default.createDirectory(at: postersDir, withIntermediateDirectories: true)
+                try? jpeg.write(to: poster, options: .atomic)
+                posterTick += 1
+            }
+            postersMaking.remove(file)
+        }
     }
 
     func thumbnail(_ file: String) -> UIImage? {
