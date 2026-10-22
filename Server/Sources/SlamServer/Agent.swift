@@ -9,11 +9,11 @@ enum Agent {
         let reads: [Role] = [.read, .write]
         router.get("v1/agent/workouts") { request, _ -> Response in
             try Routes.check(request, tokens, reads)
-            let q = request.uri.queryParameters
+            let q = query(request)
             let view = await View(vault.library())
-            let from = q["start"].flatMap { Self.date(String($0)) } ?? .distantPast
-            let to = q["end"].flatMap { Self.date(String($0), endOfDay: true) } ?? .distantFuture
-            let limit = Int(q["limit"].map(String.init) ?? "") ?? 20
+            let from = try q["start"].map { try Self.date(param: "start", $0) } ?? .distantPast
+            let to = try q["end"].map { try Self.date(param: "end", $0, endOfDay: true) } ?? .distantFuture
+            let limit = Int(q["limit"] ?? "") ?? 20
             let list = view.lib.workouts.filter { $0.start >= from && $0.start <= to }.prefix(max(1, min(limit, 500)))
             return try out(list.map(view.summary))
         }
@@ -29,13 +29,13 @@ enum Agent {
         }
         router.get("v1/agent/exercises") { request, _ -> Response in
             try Routes.check(request, tokens, reads)
-            let q = request.uri.queryParameters
+            let q = query(request)
             let view = await View(vault.library())
-            let text = q["query"].map { String($0).lowercased() } ?? ""
-            let muscle = q["muscle"].map { String($0).lowercased() } ?? ""
-            let equipment = q["equipment"].map { String($0).lowercased() } ?? ""
+            let text = q["query"] ?? ""
+            let muscle = q["muscle"]?.lowercased() ?? ""
+            let equipment = q["equipment"]?.lowercased() ?? ""
             let list = view.exercises.filter { e in
-                (text.isEmpty || (e.name + " " + e.brand).lowercased().contains(text))
+                View.matches(e, text)
                     && (muscle.isEmpty || ([e.primary] + e.secondary).contains { $0.rawValue.lowercased() == muscle || $0.title.lowercased() == muscle })
                     && (equipment.isEmpty || e.equipment.rawValue == equipment)
             }
@@ -43,19 +43,19 @@ enum Agent {
         }
         router.get("v1/agent/history") { request, _ -> Response in
             try Routes.check(request, tokens, reads)
-            let q = request.uri.queryParameters
+            let q = query(request)
             let view = await View(vault.library())
-            let ex = try view.find(q["exercise"].map(String.init) ?? "")
-            let limit = Int(q["limit"].map(String.init) ?? "") ?? 10
+            let ex = try view.find(q["exercise"] ?? "")
+            let limit = Int(q["limit"] ?? "") ?? 10
             return try out(view.history(ex, limit: max(1, min(limit, 200))))
         }
         router.get("v1/agent/progress") { request, _ -> Response in
             try Routes.check(request, tokens, reads)
-            let q = request.uri.queryParameters
+            let q = query(request)
             let view = await View(vault.library())
-            let ex = try view.find(q["exercise"].map(String.init) ?? "")
+            let ex = try view.find(q["exercise"] ?? "")
             let metric = try q["metric"].map { name in
-                guard let m = Metric(rawValue: String(name)) else {
+                guard let m = Metric(rawValue: name) else {
                     throw HTTPError(.badRequest, message: "metric is one of " + Metric.allCases.map(\.rawValue).joined(separator: ", "))
                 }
                 return m
@@ -64,16 +64,16 @@ enum Agent {
         }
         router.get("v1/agent/records") { request, _ -> Response in
             try Routes.check(request, tokens, reads)
-            let q = request.uri.queryParameters
+            let q = query(request)
             let view = await View(vault.library())
             if let name = q["exercise"], !name.isEmpty {
-                return try out([view.bests(try view.find(String(name)))])
+                return try out([view.bests(try view.find(name))])
             }
             return try out(view.exercises.map(view.bests).filter { $0.sessions > 0 }.sorted { $0.exercise < $1.exercise })
         }
         router.get("v1/agent/weeks") { request, _ -> Response in
             try Routes.check(request, tokens, reads)
-            let weeks = Int(request.uri.queryParameters["weeks"].map(String.init) ?? "") ?? 8
+            let weeks = Int(query(request)["weeks"] ?? "") ?? 8
             let view = await View(vault.library())
             return try out(view.weeks(max(1, min(weeks, 260))))
         }
@@ -200,6 +200,32 @@ enum Agent {
     static func out<T: Encodable>(_ value: T) throws -> Response {
         Response(status: .ok, headers: [.contentType: "application/json"],
                  body: ResponseBody(byteBuffer: ByteBuffer(bytes: try encoder.encode(value))))
+    }
+
+    /// Query values the way forms and HTTP clients send them: "+" is a space and "%2B" a plus. Hummingbird's own
+    /// reading leaves "+" as it is, so "Chest+Fly" found nothing. Empty values count as left out.
+    static func query(_ request: Request) -> [String: String] {
+        func decode(_ s: Substring) -> String {
+            let spaced = s.replacingOccurrences(of: "+", with: " ")
+            return spaced.removingPercentEncoding ?? spaced
+        }
+        var out: [String: String] = [:]
+        for pair in (request.uri.query ?? "").split(separator: "&") {
+            let parts = pair.split(separator: "=", maxSplits: 1, omittingEmptySubsequences: false)
+            let key = decode(parts[0])
+            let value = parts.count > 1 ? decode(parts[1]).trimmingCharacters(in: .whitespaces) : ""
+            if out[key] == nil, !value.isEmpty { out[key] = value }
+        }
+        return out
+    }
+
+    /// A date from the query, or a clear error: a range that is quietly ignored answers a different question.
+    static func date(param: String, _ s: String, endOfDay: Bool = false) throws -> Date {
+        // An offset sent without encoding its "+" arrives as a space: "2026-10-21T06:00:00 01:00".
+        guard let d = date(s, endOfDay: endOfDay) ?? date(s.replacingOccurrences(of: " ", with: "+"), endOfDay: endOfDay) else {
+            throw HTTPError(.badRequest, message: "\(param) is YYYY-MM-DD or YYYY-MM-DDTHH:MM (UK time); got \"\(s)\".")
+        }
+        return d
     }
 
     /// "2026-10-14", "2026-10-14T18:05", "2026-10-14T18:05:00Z" or with an offset. Times without a zone are UK time.
@@ -476,15 +502,25 @@ struct View {
         return w
     }
 
-    /// By id, exact name (any case), or the one name containing it.
+    /// Every word in the name or brand, in any order, as the phone's exercise search does.
+    static func matches(_ e: Exercise, _ text: String) -> Bool {
+        let hay = (e.name + " " + e.brand).lowercased()
+        return text.lowercased().split(whereSeparator: \.isWhitespace).allSatisfy { hay.contains($0) }
+    }
+
+    /// By id, exact name (any case), the one name containing it, or the one name with all its words.
     func find(_ ref: String) throws -> Exercise {
         let ref = ref.trimmingCharacters(in: .whitespaces)
         guard !ref.isEmpty else { throw HTTPError(.badRequest, message: "Name an exercise.") }
         if let id = UUID(uuidString: ref), let e = byId[id] { return e }
         let low = ref.lowercased()
         if let e = exercises.first(where: { $0.name.lowercased() == low }) { return e }
-        let near = exercises.filter { $0.name.lowercased().contains(low) }
+        var near = exercises.filter { $0.name.lowercased().contains(low) }
         if near.count == 1 { return near[0] }
+        if near.isEmpty {
+            near = exercises.filter { Self.matches($0, ref) }
+            if near.count == 1 { return near[0] }
+        }
         let names = (near.isEmpty ? exercises.filter { e in
             low.split(separator: " ").contains { e.name.lowercased().contains($0) }
         } : near).map(\.name).sorted().prefix(15)

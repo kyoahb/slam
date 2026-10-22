@@ -251,4 +251,41 @@ final class AgentTests: XCTestCase {
         XCTAssertEqual(now.exercises.first { $0.id == press }?.stack, [])
         XCTAssertEqual(now.resolved.first { $0.id == single.id }?.settings.first?.id, seat)
     }
+
+    /// Clients send spaces as "+" (Python's httpx does); names are found whatever the word order.
+    func testQueriesAsClientsSendThem() async throws {
+        let vault = try await seeded()
+        let app = Application(router: Routes.router(vault, tokens))
+        let read: HTTPFields = [.authorization: "Bearer " + tokens.read]
+        try await app.test(.router) { client in
+            try await client.execute(uri: "/v1/agent/history?exercise=Test+Chest+Press&limit=1", method: .get, headers: read) { response in
+                XCTAssertEqual(response.status, .ok)
+                let h = try XCTUnwrap(self.json(response) as? [String: Any])
+                XCTAssertEqual((h["bests"] as? [String: Any])?["exercise"] as? String, "Test Chest Press")
+            }
+            try await client.execute(uri: "/v1/agent/exercises?query=press+test", method: .get, headers: read) { response in
+                let list = try XCTUnwrap(self.json(response) as? [[String: Any]])
+                XCTAssertEqual(list.map { $0["name"] as? String }, ["Test Chest Press"])
+            }
+            try await client.execute(uri: "/v1/agent/progress?exercise=chest+test&metric=heaviest", method: .get, headers: read) { response in
+                XCTAssertEqual(response.status, .ok)
+            }
+            try await client.execute(uri: "/v1/agent/records?exercise=Test%20Preacher+Curl", method: .get, headers: read) { response in
+                let list = try XCTUnwrap(self.json(response) as? [[String: Any]])
+                XCTAssertEqual(list.first?["exercise"] as? String, "Test Preacher Curl")
+            }
+            try await client.execute(uri: "/v1/agent/workouts?start=2026-10-21T00:00:00%2B01:00", method: .get, headers: read) { response in
+                XCTAssertEqual(response.status, .ok)
+            }
+            try await client.execute(uri: "/v1/agent/workouts?start=2026-10-21T00:00:00+01:00", method: .get, headers: read) { response in
+                XCTAssertEqual(response.status, .ok)
+            }
+            try await client.execute(uri: "/v1/agent/workouts?start=last+week", method: .get, headers: read) { response in
+                XCTAssertEqual(response.status, .badRequest)
+            }
+            try await client.execute(uri: "/v1/agent/workouts?start=&limit=5", method: .get, headers: read) { response in
+                XCTAssertEqual(try (self.json(response) as? [Any])?.count, 1)
+            }
+        }
+    }
 }
