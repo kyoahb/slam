@@ -82,7 +82,13 @@ struct WristView: View {
             if !line.settings.isEmpty {
                 Text(line.settings).font(.footnote).foregroundStyle(Tint.grey)
             }
-            HoldDone { model.done(line) }.id(line.set).padding(.top, 4)
+            Button { model.done(line) } label: {
+                Label("Done", systemImage: "checkmark").font(.footnote.weight(.semibold))
+                    .frame(maxWidth: .infinity, minHeight: 36)
+                    .background(Capsule().fill(Tint.green))
+            }
+            .buttonStyle(.plain)
+            .padding(.top, 4)
         }
     }
 
@@ -118,39 +124,5 @@ private struct Small: ButtonStyle {
             .frame(maxWidth: .infinity, minHeight: 30)
             .background(Capsule().fill(Tint.control.opacity(configuration.isPressed ? 0.6 : 1)))
             .contentShape(Capsule())
-    }
-}
-
-/// Held for half a second, like the tick on the phone, so a brush of the sleeve does nothing.
-struct HoldDone: View {
-    let action: () -> Void
-    @State private var fill: CGFloat = 0
-
-    var body: some View {
-        Capsule()
-            .fill(Tint.control)
-            .overlay(alignment: .leading) {
-                GeometryReader { g in
-                    Rectangle().fill(Tint.green).frame(width: g.size.width * fill)
-                }
-            }
-            .clipShape(Capsule())
-            .overlay {
-                Label("Hold for Done", systemImage: "checkmark").font(.footnote.weight(.semibold))
-            }
-            .frame(height: 36)
-            .contentShape(Capsule())
-            .onLongPressGesture(minimumDuration: 0.5) {
-                var instant = Transaction()
-                instant.disablesAnimations = true
-                withTransaction(instant) { fill = 0 }
-                action()
-            } onPressingChanged: { pressing in
-                withAnimation(pressing ? .linear(duration: 0.5) : .easeOut(duration: 0.15)) { fill = pressing ? 1 : 0 }
-            }
-            .accessibilityElement()
-            .accessibilityAddTraits(.isButton)
-            .accessibilityLabel("Done")
-            .accessibilityAction { action() }
     }
 }

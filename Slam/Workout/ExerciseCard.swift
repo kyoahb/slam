@@ -191,7 +191,15 @@ struct SetRow: View {
             if type.hasDistance { valueCell(.distance) }
             if type.hasTime { valueCell(.time) }
             if editor.showsTicks {
-                HoldTick(done: set.done) { editor.toggleDone(entry.id, set.id) }
+                Button { editor.toggleDone(entry.id, set.id) } label: {
+                    Image(systemName: "checkmark")
+                        .font(.system(size: 14, weight: .bold))
+                        .foregroundStyle(.white)
+                        .frame(width: 34, height: 28)
+                        .background(RoundedRectangle(cornerRadius: 7).fill(set.done ? Theme.green : Theme.control))
+                }
+                .frame(width: 44, height: 40)
+                .accessibilityLabel(set.done ? "Untick set" : "Tick set")
             }
         }
         .padding(.horizontal, 16)
@@ -237,43 +245,5 @@ struct SetRow: View {
             .contentShape(Rectangle())
         }
         .buttonStyle(.plain)
-    }
-}
-
-/// The tick, held for half a second to finish or reopen a set, so a brush while pocketing the phone does nothing.
-struct HoldTick: View {
-    let done: Bool
-    let action: () -> Void
-    @State private var fill: CGFloat = 0
-
-    static let hold = 0.5
-
-    var body: some View {
-        RoundedRectangle(cornerRadius: 7)
-            .fill(done ? Theme.green : Theme.control)
-            .overlay(alignment: .leading) {
-                GeometryReader { g in
-                    Rectangle().fill(done ? Theme.control : Theme.green).frame(width: g.size.width * fill)
-                }
-            }
-            .clipShape(RoundedRectangle(cornerRadius: 7))
-            .overlay {
-                Image(systemName: "checkmark").font(.system(size: 14, weight: .bold)).foregroundStyle(.white)
-            }
-            .frame(width: 34, height: 28)
-            .frame(width: 44, height: 40)
-            .contentShape(Rectangle())
-            .onLongPressGesture(minimumDuration: Self.hold, maximumDistance: 16) {
-                var instant = Transaction()
-                instant.disablesAnimations = true
-                withTransaction(instant) { fill = 0 }
-                action()
-            } onPressingChanged: { pressing in
-                withAnimation(pressing ? .linear(duration: Self.hold) : .easeOut(duration: 0.15)) { fill = pressing ? 1 : 0 }
-            }
-            .accessibilityElement()
-            .accessibilityAddTraits(.isButton)
-            .accessibilityLabel(done ? "Untick set" : "Tick set")
-            .accessibilityAction { action() }
     }
 }
